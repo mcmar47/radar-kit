@@ -1,0 +1,12 @@
+{
+  "name": "radar-kit",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "*"
+  }
+}
