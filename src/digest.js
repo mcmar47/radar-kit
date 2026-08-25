@@ -6,8 +6,12 @@ import { escapeHtml } from "./html.js"
 // everything else in this package.
 //
 //   pageTitle       — <h1> text and the digest's title-cased name
-//   unitLabel       — singular noun for the count line, e.g. "event" ->
-//                      "3 new event(s)"
+//   unitLabel       — singular noun for the default count line, e.g. "event"
+//                      -> "3 new event(s)". Ignored if countLabel is given.
+//   countLabel      — optional n => full count phrase, for wording the
+//                      default can't produce — release-radar's "3 new/updated
+//                      item(s)" isn't "N new item(s)", so it overrides this
+//                      instead of forcing unitLabel to lie.
 //   groupKey        — item => group id (e.g. item.category, item.company)
 //   groupOrder      — optional fixed array of group ids in display order;
 //                      omit to sort ids alphabetically from whatever's
@@ -33,6 +37,7 @@ export function renderDigestContent(config, items, asOf) {
   const {
     pageTitle,
     unitLabel,
+    countLabel = (n) => `${n} new ${unitLabel}(s)`,
     groupKey,
     groupOrder,
     groupLabel = (id) => id,
@@ -47,14 +52,13 @@ export function renderDigestContent(config, items, asOf) {
   }
   const order = groupOrder ?? Object.keys(byGroup).sort()
 
+  const count = countLabel(items.length)
   const htmlParts = [
     `<html><head><meta charset="utf-8"><title>${escapeHtml(pageTitle)}</title></head><body>`,
     `<h1>${escapeHtml(pageTitle)}</h1>`,
-    `<p>${items.length} new ${unitLabel}(s) as of ${asOf}</p>`,
+    `<p>${count} as of ${asOf}</p>`,
   ]
-  const textParts = [
-    `${pageTitle} — ${items.length} new ${unitLabel}(s) as of ${asOf}\n`,
-  ]
+  const textParts = [`${pageTitle} — ${count} as of ${asOf}\n`]
 
   for (const id of order) {
     const group = byGroup[id]

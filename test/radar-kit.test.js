@@ -38,6 +38,19 @@ test("renderDigestContent groups by a fixed order and skips empty groups", () =>
   assert.ok(html.trim().endsWith("</body></html>"))
 })
 
+test("countLabel overrides the default 'new X(s)' phrasing", () => {
+  const config = {
+    pageTitle: "Release Radar Digest",
+    countLabel: (n) => `${n} new/updated item(s)`,
+    groupKey: (i) => i.type,
+    renderItemHtml: (i) => `<li>${i.title}</li>`,
+    renderItemText: (i) => `- ${i.title}`,
+  }
+  const { html, text } = renderDigestContent(config, [{ title: "X", type: "book" }], "2026-08-25")
+  assert.ok(html.includes("1 new/updated item(s) as of 2026-08-25"))
+  assert.ok(text.includes("1 new/updated item(s) as of 2026-08-25"))
+})
+
 test("renderDigestContent falls back to alphabetical groups when no groupOrder given", () => {
   const config = {
     pageTitle: "Test",
