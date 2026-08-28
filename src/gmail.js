@@ -13,6 +13,7 @@ import path from "node:path"
 import os from "node:os"
 
 const GMAIL_MCP_DIR = path.join(os.homedir(), ".gmail-mcp")
+const DEFAULT_SENDER_NAME = "CmarBot"
 
 function encodeEmailHeader(text) {
   if (/[^\x00-\x7F]/.test(text)) {
@@ -21,10 +22,17 @@ function encodeEmailHeader(text) {
   return text
 }
 
-function buildRawMimeMessage({ to, subject, text, html }) {
+function formatFromHeader(name, address) {
+  if (/[^\x00-\x7F]/.test(name)) {
+    return `${encodeEmailHeader(name)} <${address}>`
+  }
+  return `"${name.replace(/"/g, '\\"')}" <${address}>`
+}
+
+function buildRawMimeMessage({ to, subject, text, html, fromName, fromAddress }) {
   const boundary = `----=_NextPart_${Math.random().toString(36).slice(2)}`
   const parts = [
-    "From: me",
+    `From: ${formatFromHeader(fromName, fromAddress)}`,
     `To: ${to}`,
     `Subject: ${encodeEmailHeader(subject)}`,
     "MIME-Version: 1.0",
@@ -88,9 +96,22 @@ async function refreshGmailAccessToken() {
   return data.access_token
 }
 
-export async function sendGmailMessage({ to, subject, text, html }) {
+async function getGmailAddress(accessToken) {
+  const res = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  )
+  if (!res.ok) {
+    throw new Error(`Gmail profile lookup failed: ${res.status} ${await res.text()}`)
+  }
+  const data = await res.json()
+  return data.emailAddress
+}
+
+export async function sendGmailMessage({ to, subject, text, html, fromName = DEFAULT_SENDER_NAME }) {
   const accessToken = await refreshGmailAccessToken()
-  const raw = buildRawMimeMessage({ to, subject, text, html })
+  const fromAddress = await getGmailAddress(accessToken)
+  const raw = buildRawMimeMessage({ to, subject, text, html, fromName, fromAddress })
   const rawEncoded = Buffer.from(raw, "utf8").toString("base64url")
 
   const res = await fetch(
