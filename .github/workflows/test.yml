@@ -1,0 +1,73 @@
+# radar-kit is installed straight from this repo's main branch
+# (github:mcmar47/radar-kit) by seven directories across four repos, and
+# rolled out to all of them at once by pi-ops/update-radar-kit.sh. There is
+# no version tag in between to hold a bad commit back, so main being green
+# is the only gate that exists before a change reaches four unattended
+# scheduled agents and three always-on services.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 is what Debian 13 (trixie) ships, which is what the Pi runs;
+        # the others guard against a change that only works on newer Node.
+        node: ["20", "22", "24"]
+    name: node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # No install step on purpose: this package has no dependencies, and
+      # its one peer dependency is optional. If `npm ci` ever becomes
+      # necessary here, something has been added that the interest-servers
+      # would then be forced to install too -- see interestServer.js's note.
+      - run: node --test
+
+  # The interest-servers import radar-kit/server, radar-kit/markStore and
+  # radar-kit/seenStore without @opencode-ai/plugin installed. If a future
+  # change makes any of those reach the plugin package -- directly, or by
+  # importing something that re-exports it -- installing radar-kit in a
+  # server would start pulling that whole tree again, which is exactly the
+  # objection that kept this code duplicated in three repos before.
+  server-subpaths-stay-dependency-free:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: install radar-kit alone, as a server does
+        run: |
+          mkdir -p /tmp/consumer
+          cd /tmp/consumer
+          echo '{"name":"c","type":"module","dependencies":{"radar-kit":"file:'"$GITHUB_WORKSPACE"'"}}' > package.json
+          npm install
+      - name: exactly one package may be installed
+        run: |
+          cd /tmp/consumer
+          count=$(ls node_modules | grep -vc '^\.')
+          echo "installed: $(ls node_modules | grep -v '^\.' | tr '\n' ' ')"
+          test "$count" -eq 1
+      - name: the server subpaths must import cleanly
+        run: |
+          cd /tmp/consumer
+          node -e "
+            const want = { 'radar-kit/server': 'createInterestServer',
+                           'radar-kit/markStore': 'createMarkStore',
+                           'radar-kit/seenStore': 'makeKeyFn' }
+            Promise.all(Object.entries(want).map(async ([spec, sym]) => {
+              const m = await import(spec)
+              if (!(sym in m)) throw new Error(spec + ' is missing ' + sym)
+              console.log(spec + ' ok')
+            })).catch(e => { console.error(e.message); process.exit(1) })
+          "
