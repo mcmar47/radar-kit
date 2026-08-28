@@ -1,12 +1,24 @@
 {
   "name": "radar-kit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./server": "./src/interestServer.js",
+    "./markStore": "./src/markStore.js",
+    "./seenStore": "./src/seenStore.js",
+    "./calibration": "./src/calibration.js"
+  },
   "scripts": {
     "test": "node --test"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "*"
+  },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    }
   }
 }
