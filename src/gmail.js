@@ -14,6 +14,15 @@ import os from "node:os"
 
 const GMAIL_MCP_DIR = path.join(os.homedir(), ".gmail-mcp")
 const DEFAULT_SENDER_NAME = "CmarBot"
+// A "Send mail as" alias on the same account, registered with display name
+// "CmarBot" in Gmail settings. Sending from the bare primary address doesn't
+// work for this: Gmail overrides a message's displayed sender name with the
+// account's own registered name whenever it recognizes the sender as the
+// viewer's own account, ignoring whatever the raw From header says — which
+// is exactly what these self-addressed digest emails are. A distinct alias
+// is the only way to get a custom name to actually render, without renaming
+// the primary account and changing every personal email's sender too.
+const DEFAULT_SENDER_ADDRESS = "michael.cmar+cmarbot@gmail.com"
 
 function encodeEmailHeader(text) {
   if (/[^\x00-\x7F]/.test(text)) {
@@ -96,21 +105,15 @@ async function refreshGmailAccessToken() {
   return data.access_token
 }
 
-async function getGmailAddress(accessToken) {
-  const res = await fetch(
-    "https://gmail.googleapis.com/gmail/v1/users/me/profile",
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  )
-  if (!res.ok) {
-    throw new Error(`Gmail profile lookup failed: ${res.status} ${await res.text()}`)
-  }
-  const data = await res.json()
-  return data.emailAddress
-}
-
-export async function sendGmailMessage({ to, subject, text, html, fromName = DEFAULT_SENDER_NAME }) {
+export async function sendGmailMessage({
+  to,
+  subject,
+  text,
+  html,
+  fromName = DEFAULT_SENDER_NAME,
+  fromAddress = DEFAULT_SENDER_ADDRESS,
+}) {
   const accessToken = await refreshGmailAccessToken()
-  const fromAddress = await getGmailAddress(accessToken)
   const raw = buildRawMimeMessage({ to, subject, text, html, fromName, fromAddress })
   const rawEncoded = Buffer.from(raw, "utf8").toString("base64url")
 
