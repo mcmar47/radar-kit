@@ -5,12 +5,94 @@
 // runs instead.
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { escapeHtml } from "../src/html.js"
+import { escapeHtml, safeUrl } from "../src/html.js"
+import { buildRawMimeMessage } from "../src/gmail.js"
 import { renderDigestContent, validateDigestContent } from "../src/digest.js"
 import { makeKeyFn, normalizeField } from "../src/seenStore.js"
 
-test("escapeHtml escapes the three unsafe characters only", () => {
-  assert.equal(escapeHtml(`A & B <tag> "quoted"`), `A &amp; B &lt;tag&gt; "quoted"`)
+test("escapeHtml escapes the five characters that break markup", () => {
+  assert.equal(
+    escapeHtml(`A & B <tag> "quoted" 'single'`),
+    `A &amp; B &lt;tag&gt; &quot;quoted&quot; &#39;single&#39;`
+  )
+})
+
+test("escapeHtml closes the href attribute break-out", () => {
+  // The shape that made this a finding: a scraped link ending an attribute
+  // early and starting its own.
+  const link = 'https://x.com/" onmouseover="alert(1)" data-x="'
+  const rendered = `<a href="${escapeHtml(safeUrl(link))}">Apply</a>`
+  assert.ok(!rendered.includes('onmouseover="'), "attribute must not break out")
+  assert.equal(rendered.match(/"/g).length, 2, "exactly the two href quotes")
+})
+
+test("safeUrl passes http(s) through and collapses everything else", () => {
+  assert.equal(safeUrl("https://example.com/a?b=1&c=2"), "https://example.com/a?b=1&c=2")
+  assert.equal(safeUrl("http://example.com/"), "http://example.com/")
+  assert.equal(safeUrl("javascript:alert(1)"), "#")
+  assert.equal(safeUrl("data:text/html,<script>alert(1)</script>"), "#")
+  assert.equal(safeUrl("/relative/path"), "#")
+  assert.equal(safeUrl(""), "#")
+  assert.equal(safeUrl(null), "#")
+  assert.equal(safeUrl(undefined), "#")
+})
+
+test("a CRLF in the subject cannot inject a header", () => {
+  const raw = buildRawMimeMessage({
+    to: "someone@example.com",
+    subject: "Feed Radar\r\nBcc: attacker@example.com\r\nX-Injected: yes",
+    text: "body",
+    html: "<html><body>hi</body></html>",
+    fromName: "CmarBot",
+    fromAddress: "someone+cmarbot@example.com",
+  })
+  const headerBlock = raw.split("\r\n\r\n")[0]
+  assert.ok(!/^Bcc:/im.test(headerBlock), "no injected Bcc header")
+  assert.ok(!/^X-Injected:/im.test(headerBlock), "no injected X-Injected header")
+  assert.ok(
+    headerBlock.includes("Subject: Feed Radar Bcc: attacker@example.com X-Injected: yes"),
+    "the text survives, flattened onto the one Subject line"
+  )
+})
+
+test("a CRLF in the recipient cannot inject a header either", () => {
+  const raw = buildRawMimeMessage({
+    to: "someone@example.com\r\nBcc: attacker@example.com",
+    subject: "Digest",
+    text: "body",
+    html: "<html><body>hi</body></html>",
+    fromName: "CmarBot",
+    fromAddress: "someone+cmarbot@example.com",
+  })
+  assert.ok(!/^Bcc:/im.test(raw.split("\r\n\r\n")[0]))
+})
+
+test("an escaped link still round-trips through render + validate", () => {
+  // The regression this guards: flipping the anchor to escapeHtml(safeUrl(...))
+  // changes what appears in the HTML, so feed-radar's link matchField had to
+  // move to escape: true. A URL with & is the everyday case that would break.
+  const config = {
+    pageTitle: "Feed Radar",
+    unitLabel: "pick",
+    groupKey: (p) => p.theme,
+    groupOrder: ["books"],
+    groupLabel: () => "Books",
+    renderItemHtml: (p) =>
+      `<li>${escapeHtml(p.title)} <a href="${escapeHtml(safeUrl(p.link))}">${escapeHtml(p.link)}</a></li>`,
+    renderItemText: (p) => `- ${p.title}\n  ${p.link}`,
+    matchFields: [
+      { key: "title", escape: true },
+      { key: "link", escape: true },
+    ],
+  }
+  const items = [
+    { title: 'A "quoted" title & more', link: "https://example.com/x?a=1&b=2", theme: "books" },
+  ]
+  const { html, text } = renderDigestContent(config, items, "2026-08-28")
+  const padded = text + "\n" + "x".repeat(120)
+  const result = validateDigestContent(config, html, padded, items)
+  assert.deepEqual(result.failures, [])
+  assert.ok(result.pass)
 })
 
 test("renderDigestContent groups by a fixed order and skips empty groups", () => {

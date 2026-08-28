@@ -24,6 +24,24 @@ const DEFAULT_SENDER_NAME = "CmarBot"
 // the primary account and changing every personal email's sender too.
 const DEFAULT_SENDER_ADDRESS = "michael.cmar+cmarbot@gmail.com"
 
+// A header value can never carry a bare CR or LF: everything after one is
+// parsed as a new header. `subject` is free text the model writes each run,
+// normally from a scraped headline, so it is exactly the field that picks up
+// a stray newline -- and encodeEmailHeader only base64-wraps when it sees a
+// non-ASCII byte, so a pure-ASCII subject containing \r\n passed straight
+// through and everything after it became real headers:
+//
+//   Subject: Feed Radar
+//   Bcc: someone@example.com
+//   X-Injected: yes
+//
+// Collapsing CR/LF to a space keeps the value intact and the header block
+// well-formed. Applied to every header value, not just subject, so a future
+// caller passing a recipient through can't reopen the same hole.
+function sanitizeHeaderValue(text) {
+  return String(text ?? "").replace(/[\r\n]+/g, " ").trim()
+}
+
 function encodeEmailHeader(text) {
   if (/[^\x00-\x7F]/.test(text)) {
     return "=?UTF-8?B?" + Buffer.from(text, "utf8").toString("base64") + "?="
@@ -38,12 +56,12 @@ function formatFromHeader(name, address) {
   return `"${name.replace(/"/g, '\\"')}" <${address}>`
 }
 
-function buildRawMimeMessage({ to, subject, text, html, fromName, fromAddress }) {
+export function buildRawMimeMessage({ to, subject, text, html, fromName, fromAddress }) {
   const boundary = `----=_NextPart_${Math.random().toString(36).slice(2)}`
   const parts = [
-    `From: ${formatFromHeader(fromName, fromAddress)}`,
-    `To: ${to}`,
-    `Subject: ${encodeEmailHeader(subject)}`,
+    `From: ${formatFromHeader(sanitizeHeaderValue(fromName), sanitizeHeaderValue(fromAddress))}`,
+    `To: ${sanitizeHeaderValue(to)}`,
+    `Subject: ${encodeEmailHeader(sanitizeHeaderValue(subject))}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",

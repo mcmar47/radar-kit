@@ -1,4 +1,4 @@
-export { escapeHtml } from "./src/html.js"
+export { escapeHtml, safeUrl } from "./src/html.js"
 export { sendGmailMessage } from "./src/gmail.js"
 export { renderDigestContent, validateDigestContent } from "./src/digest.js"
 export {
