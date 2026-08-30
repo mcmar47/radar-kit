@@ -8,7 +8,8 @@
     "./server": "./src/interestServer.js",
     "./markStore": "./src/markStore.js",
     "./seenStore": "./src/seenStore.js",
-    "./calibration": "./src/calibration.js"
+    "./calibration": "./src/calibration.js",
+    "./oneClickMark": "./src/oneClickMark.js"
   },
   "scripts": {
     "test": "node --test"

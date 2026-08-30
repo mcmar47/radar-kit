@@ -14,6 +14,7 @@ import path from "node:path"
 
 import { readMarks, writeMarks, createMarkStore } from "../src/markStore.js"
 import { createInterestServer, sendJson } from "../src/interestServer.js"
+import { createOneClickMarkRoute, markUrls } from "../src/oneClickMark.js"
 import { buildCalibrationBlock } from "../src/calibration.js"
 import { makeKeyFn } from "../src/seenStore.js"
 
@@ -382,4 +383,162 @@ test("limit keeps the most recent marks", () => {
 test("buildCalibrationBlock refuses to run without its two required functions", () => {
   assert.throws(() => buildCalibrationBlock({ describe: evDesc }), /keyFn is required/)
   assert.throws(() => buildCalibrationBlock({ keyFn: evKey }), /describe is required/)
+})
+
+// ---------------------------------------------------------------------------
+// createOneClickMarkRoute — the email's star / reject links
+// ---------------------------------------------------------------------------
+//
+// The failure this guards against is silent and total: if the GET route's
+// key does not match the key read_calibration joins with, every click writes
+// a mark that nothing ever finds, and the agent reports an empty calibration
+// block forever while the store fills up. So the round-trip test below goes
+// all the way through buildCalibrationBlock rather than stopping at the file.
+
+async function markStoreIn(dir, exclusive = true) {
+  return createMarkStore({
+    paths: {
+      interested: path.join(dir, "interested.json"),
+      ignored: path.join(dir, "ignored.json"),
+    },
+    exclusive,
+  })
+}
+
+test("a one-click link writes a mark read_calibration can join back", async () => {
+  const dir = await tempDir()
+  const marks = await markStoreIn(dir)
+  const keyOf = makeKeyFn(["title", "date"])
+  const route = createOneClickMarkRoute({
+    marks, fields: ["title", "date"], keyOf,
+  })
+
+  await withServer([route], async (req) => {
+    const { interested } = markUrls({
+      baseUrl: "",
+      params: { title: EVENTS[0].title, date: EVENTS[0].date },
+    })
+    const res = await req(interested)
+    assert.equal(res.status, 200)
+    assert.match(await res.text(), /Marked <b>interested<\/b>/)
+  })
+
+  // The join is the actual assertion: same key function, real record found.
+  const block = buildCalibrationBlock({
+    interested: await marks.read("interested"),
+    records: EVENTS,
+    keyFn: keyOf,
+    describe: evDesc,
+  })
+  assert.match(block, /### Starred — 1 item/)
+  assert.match(block, new RegExp(EVENTS[0].title))
+})
+
+test("a title with characters that need encoding survives the round trip", async () => {
+  const dir = await tempDir()
+  const marks = await markStoreIn(dir)
+  const keyOf = makeKeyFn(["title", "date"])
+  const record = { title: "Poe & Sons: A Night's \"Reading\"", date: "2026-10-31" }
+  const route = createOneClickMarkRoute({ marks, fields: ["title", "date"], keyOf })
+
+  await withServer([route], async (req) => {
+    const { ignored } = markUrls({ baseUrl: "", params: record })
+    assert.equal((await req(ignored)).status, 200)
+  })
+
+  assert.deepEqual(
+    Object.keys(await marks.read("ignored")),
+    [keyOf(record)],
+    "ampersand/quote/apostrophe all made it through URLSearchParams intact"
+  )
+})
+
+test("the reject link clears an existing star, and vice versa", async () => {
+  const dir = await tempDir()
+  const marks = await markStoreIn(dir)
+  const keyOf = makeKeyFn(["title", "date"])
+  const route = createOneClickMarkRoute({ marks, fields: ["title", "date"], keyOf })
+  const params = { title: EVENTS[0].title, date: EVENTS[0].date }
+
+  await withServer([route], async (req) => {
+    const links = markUrls({ baseUrl: "", params })
+    await req(links.interested)
+    await req(links.ignored)
+    assert.deepEqual({ ...(await marks.read("interested")) }, {}, "star cleared")
+    assert.deepEqual(Object.keys(await marks.read("ignored")), [keyOf(params)])
+
+    await req(links.interested)
+    assert.deepEqual({ ...(await marks.read("ignored")) }, {}, "reject cleared")
+  })
+})
+
+test("a missing or empty key field is a 400, not a mark under a half key", async () => {
+  const dir = await tempDir()
+  const marks = await markStoreIn(dir)
+  const route = createOneClickMarkRoute({
+    marks, fields: ["title", "date"], keyOf: makeKeyFn(["title", "date"]),
+  })
+
+  await withServer([route], async (req) => {
+    for (const q of [
+      "/api/mark?title=A&mark=interested",           // no date
+      "/api/mark?date=2026-09-01&mark=interested",   // no title
+      "/api/mark?title=A&date=&mark=interested",     // empty date
+      "/api/mark?title=A&date=2026-09-01",           // no mark
+    ]) {
+      assert.equal((await req(q)).status, 400, q)
+    }
+  })
+
+  assert.deepEqual({ ...(await marks.read("interested")) }, {}, "nothing was written")
+})
+
+test("an unknown store name cannot reach the mark store", async () => {
+  const dir = await tempDir()
+  const marks = await markStoreIn(dir)
+  const route = createOneClickMarkRoute({
+    marks, fields: ["title", "date"], keyOf: makeKeyFn(["title", "date"]),
+  })
+
+  await withServer([route], async (req) => {
+    // The prototype-member names markStore's own guard exists for, plus a
+    // plainly wrong one. All must 400 before marks.set is ever called.
+    for (const bad of ["constructor", "__proto__", "toString", "starred"]) {
+      const res = await req(`/api/mark?title=A&date=B&mark=${encodeURIComponent(bad)}`)
+      assert.equal(res.status, 400, bad)
+    }
+  })
+})
+
+test("keyOf returning null rejects the request (feed-radar's numeric id guard)", async () => {
+  const dir = await tempDir()
+  const marks = await markStoreIn(dir)
+  const route = createOneClickMarkRoute({
+    marks,
+    fields: ["id"],
+    keyOf: ({ id }) => (/^[0-9]+$/.test(id) ? id : null),
+  })
+
+  await withServer([route], async (req) => {
+    assert.equal((await req("/api/mark?id=1405&mark=interested")).status, 200)
+    assert.equal((await req("/api/mark?id=../etc&mark=interested")).status, 400)
+    assert.equal((await req("/api/mark?id=__proto__&mark=interested")).status, 400)
+  })
+
+  assert.deepEqual(Object.keys(await marks.read("interested")), ["1405"])
+})
+
+test("the route refuses to be built without the pieces that make keys match", () => {
+  assert.throws(
+    () => createOneClickMarkRoute({ fields: ["id"], keyOf: String }),
+    /needs a markStore/
+  )
+  assert.throws(
+    () => createOneClickMarkRoute({ marks: { set() {}, names: [] }, keyOf: String }),
+    /at least one key field/
+  )
+  assert.throws(
+    () => createOneClickMarkRoute({ marks: { set() {}, names: [] }, fields: ["id"] }),
+    /keyOf is required/
+  )
 })
