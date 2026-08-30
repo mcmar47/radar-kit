@@ -25,8 +25,11 @@ but "this exact bug already needed fixing more than once."
 ## What's shared vs. what stayed put
 
 **Fully shared, no repo-specific config needed:**
-- `sendGmailMessage` / the Gmail OAuth refresh + MIME building — identical
-  in all three originals, byte for byte.
+- `sendGmailMessage` / SMTP submission + MIME building — identical
+  in all three originals, byte for byte. (Was Gmail-API + OAuth until the
+  project's consent screen got stuck in Testing status, whose refresh
+  tokens Google expires after 7 days; now `smtp.gmail.com:465` with a
+  non-expiring Gmail app password from `~/.gmail-mcp/smtp.json`.)
 - `escapeHtml`.
 - `createFilterFutureEventsTool` — event-watch's future-date filter, kept
   here since it's already fully generic (just needs `{ title, date }`) and

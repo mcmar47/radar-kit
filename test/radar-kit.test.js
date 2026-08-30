@@ -67,6 +67,55 @@ test("a CRLF in the recipient cannot inject a header either", () => {
   assert.ok(!/^Bcc:/im.test(raw.split("\r\n\r\n")[0]))
 })
 
+test("buildRawMimeMessage emits Date always and Message-ID only when given", () => {
+  const withId = buildRawMimeMessage({
+    to: "someone@example.com",
+    subject: "Digest",
+    text: "body",
+    html: "<html><body>hi</body></html>",
+    fromName: "CmarBot",
+    fromAddress: "someone+cmarbot@example.com",
+    messageId: "<abc-123@mail.gmail.com>",
+    date: new Date("2026-08-30T10:00:00Z"),
+  })
+  const headerBlock = withId.split("\r\n\r\n")[0]
+  assert.ok(
+    headerBlock.includes("Date: Sun, 30 Aug 2026 10:00:00 GMT"),
+    "Date header rendered from the passed date"
+  )
+  assert.ok(
+    headerBlock.includes("Message-ID: <abc-123@mail.gmail.com>"),
+    "Message-ID header present when supplied"
+  )
+
+  const withoutId = buildRawMimeMessage({
+    to: "someone@example.com",
+    subject: "Digest",
+    text: "body",
+    html: "<html><body>hi</body></html>",
+    fromName: "CmarBot",
+    fromAddress: "someone+cmarbot@example.com",
+  })
+  assert.ok(/^Date: /m.test(withoutId.split("\r\n\r\n")[0]), "Date still emitted")
+  assert.ok(
+    !/^Message-ID:/im.test(withoutId.split("\r\n\r\n")[0]),
+    "no empty Message-ID header when none supplied"
+  )
+})
+
+test("a CRLF in the message id cannot inject a header", () => {
+  const raw = buildRawMimeMessage({
+    to: "someone@example.com",
+    subject: "Digest",
+    text: "body",
+    html: "<html><body>hi</body></html>",
+    fromName: "CmarBot",
+    fromAddress: "someone+cmarbot@example.com",
+    messageId: "<abc@x>\r\nBcc: attacker@example.com",
+  })
+  assert.ok(!/^Bcc:/im.test(raw.split("\r\n\r\n")[0]))
+})
+
 test("an escaped link still round-trips through render + validate", () => {
   // The regression this guards: flipping the anchor to escapeHtml(safeUrl(...))
   // changes what appears in the HTML, so feed-radar's link matchField had to

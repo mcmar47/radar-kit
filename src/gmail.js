@@ -1,18 +1,32 @@
-// Reuses the same OAuth credentials the Gmail MCP server
-// (@gongrzhe/server-gmail-autoauth-mcp) already manages at ~/.gmail-mcp/ —
-// shared across every repo on this machine, no separate auth setup — but
-// bypasses that MCP server's own send-email tool call entirely. The actual
-// failure mode being fixed isn't in the MCP server: it's the model having to
-// regenerate a previous tool's HTML output as text to pass into a second
-// tool call, which is exactly where retyping corrupts long content. One
-// tool doing render + send atomically, reading straight from disk, removes
-// that hand-off completely.
+// Sends the digest email over Gmail's SMTP submission service
+// (smtp.gmail.com:465) authenticated with a Gmail *app password*, read from
+// ~/.gmail-mcp/smtp.json — the shared credential dir every repo on this
+// machine already uses, and one pi-bootstrap already backs up via its
+// `~/.gmail-mcp/*.json` glob.
+//
+// Why SMTP + app password rather than the Gmail API + OAuth: the OAuth
+// consent screen for this project is stuck in "Testing" status (publishing
+// it needs a verified domain + privacy-policy URL for the restricted Gmail
+// scopes), and Google hard-expires a Testing-mode refresh token after
+// exactly 7 days. That turned into a silent weekly outage. App passwords do
+// not expire, need no console configuration, and this fleet only ever
+// *sends* — so SMTP submission is all it needs.
+//
+// This still bypasses the @gongrzhe/server-gmail-autoauth-mcp MCP server's
+// own send tool entirely, for the original reason: one tool doing render +
+// send atomically, reading straight from disk, removes the hand-off where
+// the model would otherwise have to retype a previous tool's HTML output as
+// text into a second call.
 
-import { readFile, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
+import tls from "node:tls"
+import { randomUUID } from "node:crypto"
 
-const GMAIL_MCP_DIR = path.join(os.homedir(), ".gmail-mcp")
+const SMTP_CREDENTIALS = path.join(os.homedir(), ".gmail-mcp", "smtp.json")
+const SMTP_HOST = "smtp.gmail.com"
+const SMTP_PORT = 465
 const DEFAULT_SENDER_NAME = "CmarBot"
 // A "Send mail as" alias on the same account, registered with display name
 // "CmarBot" in Gmail settings. Sending from the bare primary address doesn't
@@ -22,6 +36,9 @@ const DEFAULT_SENDER_NAME = "CmarBot"
 // is exactly what these self-addressed digest emails are. A distinct alias
 // is the only way to get a custom name to actually render, without renaming
 // the primary account and changing every personal email's sender too.
+// SMTP submission keeps this working: the envelope sender stays the
+// authenticated account, and Gmail leaves the From header alone as long as
+// it names a verified alias.
 const DEFAULT_SENDER_ADDRESS = "michael.cmar+cmarbot@gmail.com"
 
 // A header value can never carry a bare CR or LF: everything after one is
@@ -56,12 +73,26 @@ function formatFromHeader(name, address) {
   return `"${name.replace(/"/g, '\\"')}" <${address}>`
 }
 
-export function buildRawMimeMessage({ to, subject, text, html, fromName, fromAddress }) {
+export function buildRawMimeMessage({
+  to,
+  subject,
+  text,
+  html,
+  fromName,
+  fromAddress,
+  messageId,
+  date,
+}) {
   const boundary = `----=_NextPart_${Math.random().toString(36).slice(2)}`
   const parts = [
     `From: ${formatFromHeader(sanitizeHeaderValue(fromName), sanitizeHeaderValue(fromAddress))}`,
     `To: ${sanitizeHeaderValue(to)}`,
     `Subject: ${encodeEmailHeader(sanitizeHeaderValue(subject))}`,
+    // Gmail's SMTP server fills in Date/Message-ID when they're absent, but
+    // setting them here means sendGmailMessage can return the same id it
+    // put on the wire without a follow-up round trip.
+    `Date: ${(date ?? new Date()).toUTCString()}`,
+    ...(messageId ? [`Message-ID: ${sanitizeHeaderValue(messageId)}`] : []),
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",
@@ -82,45 +113,73 @@ export function buildRawMimeMessage({ to, subject, text, html, fromName, fromAdd
   return parts.join("\r\n")
 }
 
-async function refreshGmailAccessToken() {
-  const keysRaw = await readFile(
-    path.join(GMAIL_MCP_DIR, "gcp-oauth.keys.json"),
-    "utf8"
-  )
-  const keys = JSON.parse(keysRaw).installed
-  const credsPath = path.join(GMAIL_MCP_DIR, "credentials.json")
-  const creds = JSON.parse(await readFile(credsPath, "utf8"))
-
-  const res = await fetch(keys.token_uri, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: keys.client_id,
-      client_secret: keys.client_secret,
-      refresh_token: creds.refresh_token,
-      grant_type: "refresh_token",
-    }),
+// Reads one SMTP reply, which may span several `NNN-...` continuation lines
+// before the terminating `NNN <text>` line (space, not dash, after the
+// code). Resolves { code, text } on that terminator; rejects on socket error.
+function readSmtpReply(socket) {
+  return new Promise((resolve, reject) => {
+    let buf = ""
+    const cleanup = () => {
+      socket.removeListener("data", onData)
+      socket.removeListener("error", onError)
+    }
+    const onData = (chunk) => {
+      buf += chunk.toString("utf8")
+      for (const line of buf.split("\r\n")) {
+        if (/^\d{3} /.test(line)) {
+          cleanup()
+          resolve({ code: Number(line.slice(0, 3)), text: buf.trimEnd() })
+          return
+        }
+      }
+    }
+    const onError = (err) => {
+      cleanup()
+      reject(err)
+    }
+    socket.on("data", onData)
+    socket.on("error", onError)
   })
-  if (!res.ok) {
-    throw new Error(
-      `Gmail OAuth token refresh failed: ${res.status} ${await res.text()}`
-    )
+}
+
+// Minimal SMTP-over-implicit-TLS submission: EHLO, AUTH LOGIN, one
+// recipient, one message. Deliberately dependency-free — Gmail's submission
+// endpoint is well-behaved and this fleet sends one short multipart message
+// at a time, so the surface a full mailer library would cover (connection
+// pooling, pipelining, STARTTLS upgrade, retry queues) is all absent by
+// design.
+async function smtpSubmit({ user, pass, envelopeFrom, to, raw }) {
+  const socket = tls.connect({ host: SMTP_HOST, port: SMTP_PORT, servername: SMTP_HOST })
+  socket.setEncoding("utf8")
+  try {
+    const step = async (command, ...okCodes) => {
+      if (command !== null) socket.write(command + "\r\n")
+      const { code, text } = await readSmtpReply(socket)
+      if (!okCodes.includes(code)) {
+        const label = command ? command.split(" ")[0] : "greeting"
+        // Never let a raw AUTH line into an error message.
+        throw new Error(`SMTP ${label} failed: ${text.replace(/\s+/g, " ").trim()}`)
+      }
+      return text
+    }
+
+    await step(null, 220)
+    await step("EHLO radar-kit", 250)
+    await step("AUTH LOGIN", 334)
+    await step(Buffer.from(user, "utf8").toString("base64"), 334)
+    await step(Buffer.from(pass, "utf8").toString("base64"), 235)
+    await step(`MAIL FROM:<${envelopeFrom}>`, 250)
+    await step(`RCPT TO:<${to}>`, 250, 251)
+    await step("DATA", 354)
+    // Normalize to CRLF, then dot-stuff any line that begins with '.' so it
+    // can't be read as the end-of-data terminator.
+    const body = raw.replace(/\r?\n/g, "\r\n").replace(/(^|\r\n)\./g, "$1..")
+    socket.write(body + "\r\n.\r\n")
+    await step(null, 250)
+    await step("QUIT", 221)
+  } finally {
+    socket.end()
   }
-  const data = await res.json()
-  await writeFile(
-    credsPath,
-    JSON.stringify(
-      {
-        ...creds,
-        access_token: data.access_token,
-        expiry_date: Date.now() + data.expires_in * 1000,
-      },
-      null,
-      2
-    ),
-    "utf8"
-  )
-  return data.access_token
 }
 
 export async function sendGmailMessage({
@@ -131,23 +190,44 @@ export async function sendGmailMessage({
   fromName = DEFAULT_SENDER_NAME,
   fromAddress = DEFAULT_SENDER_ADDRESS,
 }) {
-  const accessToken = await refreshGmailAccessToken()
-  const raw = buildRawMimeMessage({ to, subject, text, html, fromName, fromAddress })
-  const rawEncoded = Buffer.from(raw, "utf8").toString("base64url")
-
-  const res = await fetch(
-    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ raw: rawEncoded }),
-    }
-  )
-  if (!res.ok) {
-    throw new Error(`Gmail send failed: ${res.status} ${await res.text()}`)
+  let user, pass
+  try {
+    ;({ user, pass } = JSON.parse(await readFile(SMTP_CREDENTIALS, "utf8")))
+  } catch (err) {
+    throw new Error(
+      `Could not read SMTP credentials from ${SMTP_CREDENTIALS} ` +
+        `(expected {"user","pass"} with a Gmail app password): ${err.message}`
+    )
   }
-  return await res.json()
+  if (!user || !pass) {
+    throw new Error(`${SMTP_CREDENTIALS} is missing "user" or "pass".`)
+  }
+
+  const messageId = `<${randomUUID()}@mail.gmail.com>`
+  const raw = buildRawMimeMessage({
+    to,
+    subject,
+    text,
+    html,
+    fromName,
+    fromAddress,
+    messageId,
+  })
+
+  await smtpSubmit({
+    user,
+    // App passwords are shown grouped as "xxxx xxxx xxxx xxxx"; Gmail accepts
+    // either form, but strip the spaces so a copy-paste of the grouped form
+    // doesn't get base64'd with them.
+    pass: String(pass).replace(/\s+/g, ""),
+    // Envelope stays the authenticated account; the From header carries the
+    // CmarBot alias.
+    envelopeFrom: user,
+    to,
+    raw,
+  })
+
+  // Kept shape-compatible with the old Gmail API return. SMTP submission
+  // has no thread concept, so threadId is always null now.
+  return { id: messageId, threadId: null }
 }
