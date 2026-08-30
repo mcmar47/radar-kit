@@ -64,7 +64,8 @@ jobs:
           node -e "
             const want = { 'radar-kit/server': 'createInterestServer',
                            'radar-kit/markStore': 'createMarkStore',
-                           'radar-kit/seenStore': 'makeKeyFn' }
+                           'radar-kit/seenStore': 'makeKeyFn',
+                           'radar-kit/oneClickMark': 'createOneClickMarkRoute' }
             Promise.all(Object.entries(want).map(async ([spec, sym]) => {
               const m = await import(spec)
               if (!(sym in m)) throw new Error(spec + ' is missing ' + sym)
