@@ -102,6 +102,14 @@ export async function writeMarks(storePath, marks) {
   const handle = await open(tmp, "w")
   try {
     await handle.writeFile(JSON.stringify(marks, null, 2) + "\n", "utf8")
+    // These stores are served straight off disk by nginx as static JSON, so
+    // they must stay world-readable no matter what umask the calling
+    // process happens to have. open()'s mode argument is masked against
+    // that umask — a caller running under 0077 (a cron entry, a systemd
+    // unit without an explicit UMask=) would still produce 0600 and nginx
+    // would 403 the file. fchmod(2) via the open handle is not subject to
+    // umask, so this is deterministic regardless of who calls writeMarks.
+    await handle.chmod(0o644)
     await handle.sync()
   } finally {
     await handle.close()

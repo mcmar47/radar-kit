@@ -8,7 +8,7 @@
 
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, writeFile, readdir } from "node:fs/promises"
+import { mkdtemp, readFile, writeFile, readdir, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -100,6 +100,27 @@ test("sequential writes do not interleave", async () => {
     JSON.parse(await readFile(store, "utf8")) // throws if ever truncated
   }
   assert.equal(Object.keys(await marks.read("interested")).length, 25)
+})
+
+test("a written store is 0644 even under a restrictive umask", async () => {
+  // These stores are served straight off disk by nginx as static JSON, so
+  // they must stay world-readable no matter what umask the writing process
+  // has. This is the failure that actually put three stores on the Pi at
+  // 0600 and made nginx 403 them: something called writeMarks under a 0077
+  // umask. open()'s mode is masked by the umask, so only an explicit
+  // fchmod on the handle can make this deterministic.
+  const dir = await tempDir()
+  const store = path.join(dir, "interested.json")
+
+  const originalUmask = process.umask(0o077)
+  try {
+    await writeMarks(store, { "a book|2026-01-01": true })
+  } finally {
+    process.umask(originalUmask)
+  }
+
+  const { mode } = await stat(store)
+  assert.equal(mode & 0o777, 0o644)
 })
 
 // ---------------------------------------------------------------------------
