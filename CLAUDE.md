@@ -16,7 +16,8 @@ more than once across the sibling repos, not by "these look similar."
 
 - **Test:** `npm test` (runs `node --test`). Two files: `test/radar-kit.test.js` (digest
   render/validate, key normalization, HTML escaping, MIME header injection) and
-  `test/interest-server.test.js` (mark store, request shell, calibration join) — the latter's
+  `test/interest-server.test.js` (mark store, request shell, calibration join, one-click
+  route + its `onMarked` hook) — the latter's
   tests are written to fail against the pre-fix behavior of real bugs found on the Pi, so they
   double as regression tests for incidents, not just spec coverage.
 - No build/lint step. CI (`.github/workflows/test.yml`) runs the suite on Node 20/22/24 on every

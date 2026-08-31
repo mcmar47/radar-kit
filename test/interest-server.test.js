@@ -562,4 +562,73 @@ test("the route refuses to be built without the pieces that make keys match", ()
     () => createOneClickMarkRoute({ marks: { set() {}, names: [] }, fields: ["id"] }),
     /keyOf is required/
   )
+  assert.throws(
+    () => createOneClickMarkRoute({
+      marks: { set() {}, names: ["interested"] }, fields: ["id"], keyOf: String,
+      onMarked: "not a function",
+    }),
+    /onMarked must be a function/
+  )
+})
+
+// ---------------------------------------------------------------------------
+// createOneClickMarkRoute — the onMarked hook (release-radar mirrors an
+// "interested" click onto the shelf through it)
+// ---------------------------------------------------------------------------
+
+test("onMarked runs after the store write, once per click, with the click's params", async () => {
+  const dir = await tempDir()
+  const marks = await markStoreIn(dir)
+  const keyOf = makeKeyFn(["title", "date"])
+  const seenByHook = []
+  const route = createOneClickMarkRoute({
+    marks, fields: ["title", "date"], keyOf,
+    onMarked: async (info) => {
+      // The mark is already on disk by the time the hook sees it.
+      seenByHook.push({
+        ...info,
+        onDisk: Object.keys(await marks.read(info.store)),
+      })
+    },
+  })
+
+  const params = { title: EVENTS[0].title, date: EVENTS[0].date }
+  await withServer([route], async (req) => {
+    const links = markUrls({ baseUrl: "", params })
+    assert.equal((await req(links.interested)).status, 200)
+    assert.equal((await req(links.ignored)).status, 200)
+  })
+
+  assert.equal(seenByHook.length, 2)
+  assert.deepEqual(seenByHook[0], {
+    store: "interested",
+    params,
+    key: keyOf(params),
+    onDisk: [keyOf(params)],
+  })
+  assert.equal(seenByHook[1].store, "ignored")
+})
+
+test("a throwing onMarked hook neither breaks the click nor loses the mark", async () => {
+  const dir = await tempDir()
+  const marks = await markStoreIn(dir)
+  const keyOf = makeKeyFn(["title", "date"])
+  const route = createOneClickMarkRoute({
+    marks, fields: ["title", "date"], keyOf,
+    onMarked: () => { throw new Error("shelf is unreachable") },
+  })
+
+  const params = { title: EVENTS[0].title, date: EVENTS[0].date }
+  await withServer([route], async (req) => {
+    const { interested } = markUrls({ baseUrl: "", params })
+    const res = await req(interested)
+    assert.equal(res.status, 200)
+    assert.match(await res.text(), /Marked <b>interested<\/b>/)
+  })
+
+  assert.deepEqual(
+    Object.keys(await marks.read("interested")),
+    [keyOf(params)],
+    "the mark is on disk even though the hook threw"
+  )
 })

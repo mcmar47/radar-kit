@@ -71,6 +71,16 @@ export function notedPage(label) {
  *        a non-numeric Miniflux id out of the key space entirely).
  * @param {string}   path    route path, default "/api/mark"
  * @param {object}   labels  store name -> what the confirmation page says
+ * @param {(info: {store, params, key}) => void|Promise<void>} onMarked
+ *        optional. Called once after a click's mark is written to disk, with
+ *        the store name, the raw query params, and the computed key. For a
+ *        downstream side effect of the mark — release-radar mirrors an
+ *        "interested" release onto the shelf this way. Runs after the store
+ *        write so a hook failure can't lose the mark, and is wrapped so a
+ *        throw can't turn a successful click into an error page. The hook
+ *        owns its own timeout/retry — this route only guarantees one call
+ *        per set and does not block the response on slow work the hook
+ *        chooses not to await.
  */
 export function createOneClickMarkRoute({
   marks,
@@ -78,6 +88,7 @@ export function createOneClickMarkRoute({
   keyOf,
   path = "/api/mark",
   labels = DEFAULT_LABELS,
+  onMarked = null,
 }) {
   if (!marks || typeof marks.set !== "function") {
     throw new Error("createOneClickMarkRoute: needs a markStore")
@@ -87,6 +98,9 @@ export function createOneClickMarkRoute({
   }
   if (typeof keyOf !== "function") {
     throw new Error("createOneClickMarkRoute: keyOf is required")
+  }
+  if (onMarked != null && typeof onMarked !== "function") {
+    throw new Error("createOneClickMarkRoute: onMarked must be a function")
   }
 
   const usage =
@@ -124,6 +138,15 @@ export function createOneClickMarkRoute({
       }
 
       await marks.set({ store: mark, key, value: true })
+
+      if (onMarked) {
+        try {
+          await onMarked({ store: mark, params, key })
+        } catch (err) {
+          console.error("createOneClickMarkRoute: onMarked hook threw:", err)
+        }
+      }
+
       sendHtml(res, 200, notedPage(labels[mark] ?? mark))
     },
   }
