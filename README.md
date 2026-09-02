@@ -30,6 +30,9 @@ but "this exact bug already needed fixing more than once."
   project's consent screen got stuck in Testing status, whose refresh
   tokens Google expires after 7 days; now `smtp.gmail.com:465` with a
   non-expiring Gmail app password from `~/.gmail-mcp/smtp.json`.)
+  `sendGmailMessage({ attachments: [{ filename, contentType, content }] })`
+  wraps the alternative body in `multipart/mixed` and base64s each
+  payload — added for shelf's monthly cover-grid PNG.
 - `escapeHtml`.
 - `createFilterFutureEventsTool` — event-watch's future-date filter, kept
   here since it's already fully generic (just needs `{ title, date }`) and

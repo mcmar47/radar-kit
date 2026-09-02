@@ -103,6 +103,72 @@ test("buildRawMimeMessage emits Date always and Message-ID only when given", () 
   )
 })
 
+test("buildRawMimeMessage stays multipart/alternative when there are no attachments", () => {
+  const raw = buildRawMimeMessage({
+    to: "someone@example.com",
+    subject: "Digest",
+    text: "body",
+    html: "<html><body>hi</body></html>",
+    fromName: "CmarBot",
+    fromAddress: "someone+cmarbot@example.com",
+  })
+  const headerBlock = raw.split("\r\n\r\n")[0]
+  assert.ok(/^Content-Type: multipart\/alternative;/m.test(headerBlock))
+  assert.ok(!/multipart\/mixed/.test(raw))
+})
+
+test("buildRawMimeMessage wraps the body in multipart/mixed and base64s an attachment", () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
+  const raw = buildRawMimeMessage({
+    to: "someone@example.com",
+    subject: "Monthly recap",
+    text: "see attached",
+    html: "<html><body>see attached</body></html>",
+    fromName: "CmarBot",
+    fromAddress: "someone+cmarbot@example.com",
+    attachments: [{ filename: "recap-2026-08.png", contentType: "image/png", content: png }],
+  })
+  const headerBlock = raw.split("\r\n\r\n")[0]
+  assert.ok(/^Content-Type: multipart\/mixed;/m.test(headerBlock), "top level is mixed")
+  assert.ok(raw.includes("Content-Type: multipart/alternative;"), "alternative nested inside")
+  assert.ok(
+    raw.includes('Content-Disposition: attachment; filename="recap-2026-08.png"'),
+    "attachment disposition + filename"
+  )
+  assert.ok(raw.includes("Content-Transfer-Encoding: base64"))
+  assert.ok(raw.includes(png.toString("base64")), "payload is the base64 of the bytes")
+  assert.ok(/text\/plain/.test(raw) && /text\/html/.test(raw), "both alt bodies survive")
+})
+
+test("buildRawMimeMessage base64 wraps long attachments at 76 columns", () => {
+  const raw = buildRawMimeMessage({
+    to: "a@example.com",
+    subject: "s",
+    text: "t",
+    html: "<p>t</p>",
+    fromName: "CmarBot",
+    fromAddress: "a+cmarbot@example.com",
+    attachments: [{ filename: "big.bin", content: Buffer.alloc(400, 0x41) }],
+  })
+  const b64Block = raw.split('filename="big.bin"')[1].split("--")[0]
+  const lines = b64Block.trim().split("\r\n")
+  assert.ok(lines.every((l) => l.length <= 76), "no base64 line exceeds 76 chars")
+  assert.ok(lines.length > 1, "long payload actually wrapped")
+})
+
+test("buildRawMimeMessage ignores attachment entries with no content", () => {
+  const raw = buildRawMimeMessage({
+    to: "a@example.com",
+    subject: "s",
+    text: "t",
+    html: "<p>t</p>",
+    fromName: "CmarBot",
+    fromAddress: "a+cmarbot@example.com",
+    attachments: [null, { filename: "empty.png" }],
+  })
+  assert.ok(!/multipart\/mixed/.test(raw), "empty attachment list collapses back to alternative")
+})
+
 test("a CRLF in the message id cannot inject a header", () => {
   const raw = buildRawMimeMessage({
     to: "someone@example.com",

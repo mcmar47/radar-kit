@@ -73,6 +73,23 @@ function formatFromHeader(name, address) {
   return `"${name.replace(/"/g, '\\"')}" <${address}>`
 }
 
+// Wraps a Buffer/base64 payload as one MIME attachment part: base64,
+// 76-char lines (RFC 2045), disposition `attachment` with the filename.
+function attachmentPart(boundary, { filename, contentType, content }) {
+  const b64 = (Buffer.isBuffer(content) ? content : Buffer.from(String(content), "base64"))
+    .toString("base64")
+    .replace(/(.{76})/g, "$1\r\n")
+  return [
+    `--${boundary}`,
+    `Content-Type: ${sanitizeHeaderValue(contentType || "application/octet-stream")}`,
+    "Content-Transfer-Encoding: base64",
+    `Content-Disposition: attachment; filename="${sanitizeHeaderValue(filename || "attachment").replace(/"/g, "")}"`,
+    "",
+    b64,
+    "",
+  ]
+}
+
 export function buildRawMimeMessage({
   to,
   subject,
@@ -82,9 +99,28 @@ export function buildRawMimeMessage({
   fromAddress,
   messageId,
   date,
+  attachments = [],
 }) {
-  const boundary = `----=_NextPart_${Math.random().toString(36).slice(2)}`
-  const parts = [
+  const altBoundary = `----=_Alt_${Math.random().toString(36).slice(2)}`
+  const alt = [
+    `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+    "",
+    `--${altBoundary}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: 7bit",
+    "",
+    text,
+    "",
+    `--${altBoundary}`,
+    "Content-Type: text/html; charset=UTF-8",
+    "Content-Transfer-Encoding: 7bit",
+    "",
+    html,
+    "",
+    `--${altBoundary}--`,
+  ]
+
+  const headers = [
     `From: ${formatFromHeader(sanitizeHeaderValue(fromName), sanitizeHeaderValue(fromAddress))}`,
     `To: ${sanitizeHeaderValue(to)}`,
     `Subject: ${encodeEmailHeader(sanitizeHeaderValue(subject))}`,
@@ -94,21 +130,25 @@ export function buildRawMimeMessage({
     `Date: ${(date ?? new Date()).toUTCString()}`,
     ...(messageId ? [`Message-ID: ${sanitizeHeaderValue(messageId)}`] : []),
     "MIME-Version: 1.0",
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ]
+
+  const files = (attachments ?? []).filter((a) => a && a.content != null)
+  if (files.length === 0) {
+    return [...headers, ...alt].join("\r\n")
+  }
+
+  // With attachments the alternative part becomes one leaf of a
+  // multipart/mixed tree.
+  const mixBoundary = `----=_Mix_${Math.random().toString(36).slice(2)}`
+  const parts = [
+    ...headers,
+    `Content-Type: multipart/mixed; boundary="${mixBoundary}"`,
     "",
-    `--${boundary}`,
-    "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: 7bit",
+    `--${mixBoundary}`,
+    ...alt,
     "",
-    text,
-    "",
-    `--${boundary}`,
-    "Content-Type: text/html; charset=UTF-8",
-    "Content-Transfer-Encoding: 7bit",
-    "",
-    html,
-    "",
-    `--${boundary}--`,
+    ...files.flatMap((f) => attachmentPart(mixBoundary, f)),
+    `--${mixBoundary}--`,
   ]
   return parts.join("\r\n")
 }
@@ -187,6 +227,7 @@ export async function sendGmailMessage({
   subject,
   text,
   html,
+  attachments = [],
   fromName = DEFAULT_SENDER_NAME,
   fromAddress = DEFAULT_SENDER_ADDRESS,
 }) {
@@ -209,6 +250,7 @@ export async function sendGmailMessage({
     subject,
     text,
     html,
+    attachments,
     fromName,
     fromAddress,
     messageId,
