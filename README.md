@@ -153,10 +153,12 @@ silently finds nothing and every run reports an empty block:
 | event-watch | `["title", "date"]` | `seen-events.json` |
 | release-radar | `["watch", "type", "title"]` | `seen-releases.json` |
 | feed-radar | `[{ field: "id", exact: true }]` | `picks.json` |
+| job-radar | `["company", "title", "link"]` | `seen-jobs.json` |
 
-`job-radar` is **not** wired up: it has no web UI, no interest-server and no
-mark files, so there is nothing to calibrate against. It needs one built
-before it can join.
+All four are now wired up. `job-radar` was the last: it gained an
+interest-server on 2026-08-30 (marks come from the iOS Jobs tab), and its
+prompt gained the `read_calibration` step on 2026-09-02 — before that the
+marks it collected were read by nothing.
 
 ## Using this in a repo
 

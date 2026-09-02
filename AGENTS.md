@@ -34,8 +34,8 @@ more than once across the sibling repos, not by "these look similar."
   `server/package.json` in the first place.
 - **`src/calibration.js`** joins a repo's star/reject mark file back to its records file by
   `keyFields`, which must match what that repo's interest-server writes or the join silently finds
-  nothing. See README's table for the three wired-up repos' `keyFields` — `job-radar` has no
-  interest-server yet, so it isn't wired up.
+  nothing. See README's table for all four repos' `keyFields`. Every repo is now wired up;
+  `job-radar` was the last, on 2026-09-02.
 - **Consumers pin `@opencode-ai/plugin`** in their own gitignored `.opencode/package.json` to
   whatever opencode version that machine has installed (see README's "Using this in a repo").
   Reinstalling `radar-kit` without checking that pin against the Pi's actual `opencode --version`
