@@ -17,6 +17,7 @@ export {
 export { createFilterFutureEventsTool } from "./src/filterFutureEvents.js"
 export { buildCalibrationBlock, readCalibrationBlock } from "./src/calibration.js"
 export { createCalibrationTool } from "./src/calibrationTool.js"
+export { buildScorecard, appendRun } from "./src/scorecard.js"
 // Only the digest-side half of oneClickMark is re-exported here. The route
 // half (createOneClickMarkRoute) belongs to the interest-servers, which
 // import "radar-kit/oneClickMark" directly so they never evaluate this file

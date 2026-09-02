@@ -14,9 +14,11 @@ more than once across the sibling repos, not by "these look similar."
 
 ## Commands
 
-- **Test:** `npm test` (runs `node --test`). Two files: `test/radar-kit.test.js` (digest
-  render/validate, key normalization, HTML escaping, MIME header injection) and
-  `test/interest-server.test.js` (mark store, request shell, calibration join) — the latter's
+- **Test:** `npm test` (runs `node --test`). Three files: `test/radar-kit.test.js` (digest
+  render/validate, key normalization, HTML escaping, MIME header injection),
+  `test/interest-server.test.js` (mark store + its `{ at, via }` shape, request shell,
+  calibration join and its recency ordering) and `test/scorecard.test.js` (the digest-footer
+  scorecard and run log) — the interest-server
   tests are written to fail against the pre-fix behavior of real bugs found on the Pi, so they
   double as regression tests for incidents, not just spec coverage.
 - No build/lint step. CI (`.github/workflows/test.yml`) runs the suite on Node 20/22/24 on every
@@ -25,8 +27,9 @@ more than once across the sibling repos, not by "these look similar."
 
 ## Architecture
 
-- **`index.js`** and `src/*.js` — the shared modules. `exports` in `package.json` defines five
-  subpaths (`.`, `./server`, `./markStore`, `./seenStore`, `./calibration`, `./oneClickMark`).
+- **`index.js`** and `src/*.js` — the shared modules. `exports` in `package.json` defines these
+  subpaths (`.`, `./server`, `./markStore`, `./seenStore`, `./calibration`, `./scorecard`,
+  `./oneClickMark`).
   **Keep `markStore.js`, `interestServer.js`, `seenStore.js` and `calibration.js` free of any
   import that reaches `@opencode-ai/plugin`** — that peer dependency is optional specifically so a
   bare interest-server (no opencode involved at all) can `npm install radar-kit` and pull exactly

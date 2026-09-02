@@ -33,7 +33,8 @@ import { escapeHtml } from "./html.js"
 //                      are never HTML-escaped when rendered, e.g. a raw
 //                      date string.
 
-export function renderDigestContent(config, items, asOf) {
+export function renderDigestContent(config, items, asOf, opts = {}) {
+  const { footerHtml = "", footerText = "" } = opts
   const {
     pageTitle,
     unitLabel,
@@ -73,7 +74,13 @@ export function renderDigestContent(config, items, asOf) {
     }
     htmlParts.push("</ul>")
   }
+  // The footer (a scorecard line, say) sits after the last group and
+  // before the closing tags, so validateDigestContent's "ends with
+  // </body></html>" check still holds and it adds no <h2> to throw off the
+  // group-heading count.
+  if (footerHtml) htmlParts.push(footerHtml)
   htmlParts.push("</body></html>")
+  if (footerText) textParts.push(footerText)
 
   return {
     html: htmlParts.join("\n"),

@@ -160,6 +160,40 @@ interest-server on 2026-08-30 (marks come from the iOS Jobs tab), and its
 prompt gained the `read_calibration` step on 2026-09-02 — before that the
 marks it collected were read by nothing.
 
+## Scorecard
+
+`src/scorecard.js` (`buildScorecard`) builds the one-line footer that
+`renderDigestContent` can append to every digest:
+
+```
+Last 7 days: 16 picks, 3 starred, 1 rejected · glm-5.3-flash
+```
+
+It exists because two agents moved to GLM 5.3 Flash on 2026-09-01 and
+there was no way to see what that did to pick quality without counting
+marks by hand between runs. The star/reject counts come from each mark's
+`at` timestamp (the field `markStore` started recording in 2026-09 — a
+legacy `true` mark has no timestamp and never lands in a window). The
+"delivered" total comes from a small run log the send tool appends to
+after each successful send (`logs/digest-runs.json`, capped at 90
+entries).
+
+Wire it by passing a `scorecard` block to `createRenderDigestTool` and
+`createSendDigestEmailTool`:
+
+```js
+scorecard: { noun: "picks", model: "openrouter/z-ai/glm-5.3-flash" }
+```
+
+`interestedFileName` / `ignoredFileName` / `runsFileName` / `days` all have
+defaults. `model` falls back to `$DIGEST_MODEL`.
+
+**Per-run cost is not wired yet.** `buildScorecard` renders a `costUsd`
+when it is passed one, but nothing supplies it: OpenRouter cost needs the
+run wrapper to capture the generation id(s) and query
+`/api/v1/generation`, which does not exist. Until then the footer shows
+counts and model only.
+
 ## Using this in a repo
 
 `.opencode/package.json` (hand-maintained and gitignored on purpose, since
