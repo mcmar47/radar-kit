@@ -28,9 +28,9 @@ more than once across the sibling repos, not by "these look similar."
 ## Architecture
 
 - **`index.js`** and `src/*.js` — the shared modules. `exports` in `package.json` defines several
-  subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./health`,
+  subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./gmail`, `./health`,
   `./oneClickMark`).
-  **Keep `markStore.js`, `interestServer.js`, `seenStore.js`, `calibration.js`, `scorecard.js`,
+  **Keep `markStore.js`, `interestServer.js`, `seenStore.js`, `calibration.js`, `scorecard.js`, `gmail.js`,
   `healthRoute.js` and `atomicWrite.js` free of any
   import that reaches `@opencode-ai/plugin`** — that peer dependency is optional specifically so a
   bare interest-server (no opencode involved at all) can `npm install radar-kit` and pull exactly

@@ -1,6 +1,6 @@
 {
   "name": "radar-kit",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -11,6 +11,7 @@
     "./seenStore": "./src/seenStore.js",
     "./calibration": "./src/calibration.js",
     "./scorecard": "./src/scorecard.js",
+    "./gmail": "./src/gmail.js",
     "./health": "./src/healthRoute.js",
     "./oneClickMark": "./src/oneClickMark.js"
   },

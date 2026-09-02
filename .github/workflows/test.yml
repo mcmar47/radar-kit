@@ -67,6 +67,7 @@ jobs:
                            'radar-kit/atomicWrite': 'writeFileAtomic',
                            'radar-kit/seenStore': 'makeKeyFn',
                            'radar-kit/scorecard': 'buildScorecard',
+                           'radar-kit/gmail': 'sendGmailMessage',
                            'radar-kit/health': 'createHealthRoute',
                            'radar-kit/oneClickMark': 'createOneClickMarkRoute' }
             Promise.all(Object.entries(want).map(async ([spec, sym]) => {
