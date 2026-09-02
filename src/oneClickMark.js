@@ -71,6 +71,9 @@ export function notedPage(label) {
  *        a non-numeric Miniflux id out of the key space entirely).
  * @param {string}   path    route path, default "/api/mark"
  * @param {object}   labels  store name -> what the confirmation page says
+ * @param {string}   via     source string recorded on every mark this
+ *                           route writes, default "email" — these links
+ *                           only ever appear in the digest mail
  * @param {(info: {store, params, key}) => void|Promise<void>} onMarked
  *        optional. Called once after a click's mark is written to disk, with
  *        the store name, the raw query params, and the computed key. For a
@@ -89,6 +92,7 @@ export function createOneClickMarkRoute({
   path = "/api/mark",
   labels = DEFAULT_LABELS,
   onMarked = null,
+  via = "email",
 }) {
   if (!marks || typeof marks.set !== "function") {
     throw new Error("createOneClickMarkRoute: needs a markStore")
@@ -137,7 +141,7 @@ export function createOneClickMarkRoute({
         return
       }
 
-      await marks.set({ store: mark, key, value: true })
+      await marks.set({ store: mark, key, value: true, via })
 
       if (onMarked) {
         try {

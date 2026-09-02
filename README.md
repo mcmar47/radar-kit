@@ -80,6 +80,18 @@ and the catch-all that stops one bad request exiting the process).
 HTML response for one-click links from the digest email. Those are
 genuinely different, not same-shaped-with-different-data.
 
+**Mark shape (2026-09).** A mark written through `createMarkStore().set`
+is now `{ at, via }` — an ISO timestamp and a short source string
+(`"email"` from the digest links, `"web"` from a page toggle, `"app"` from
+the iOS client) — instead of a bare `true`. This is what lets
+`buildCalibrationBlock` order marks by recency rather than by key order
+(feed-radar's keys are numeric strings, so key order was never
+chronological) and lets a fleet review see which surface is actually
+earning marks. Old stores are upgraded lazily: a key keeps its `true`
+until the next `set` touches it, and `markInfo(value)` normalizes either
+shape to `{ at, via }` (a legacy mark reads as `{ at: null, via: null }`).
+Every `key in marks` / `marks[key]` truthiness path is unchanged.
+
 Two fixes went upstream with the extraction, so all three now get behaviour
 only feed-radar had learned the hard way:
 

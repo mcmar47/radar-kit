@@ -1,6 +1,16 @@
 // The on-disk half of the interest/ignored marks that event-watch,
 // release-radar and feed-radar all persist: a flat JSON object of
-// `key -> true`, written atomically, read defensively.
+// `key -> mark`, written atomically, read defensively.
+//
+// A mark used to be a bare `true`. As of 2026-09 a mark set through this
+// module is `{ at, via }` — an ISO timestamp and a short source string
+// ("email", "web", "app") — so calibration can weight a recent preference
+// over an old one and a review can tell which surface is earning the
+// marks. Stores written before that change still hold bare `true` values;
+// `markInfo()` normalizes both shapes to `{ at, via }` (a legacy mark
+// reads as `{ at: null, via: null }`), and every read path treats a mark
+// as truthy-or-absent exactly as before, so the on-disk upgrade is lazy —
+// a key keeps its old `true` until the next time it is set.
 //
 // This file exists because its two core functions were byte-identical in
 // all three repos' server/interest-server.js, and the same crash class had
@@ -91,6 +101,20 @@ function describe(value) {
   return `a ${typeof value}`
 }
 
+// Normalize one stored mark value to `{ at, via }`. A mark set since the
+// 2026-09 change is already that shape; a mark written by the old code is a
+// bare `true` and reads back as `{ at: null, via: null }`, so no caller has
+// to know which era a store is from. Anything else (a mark should never be
+// a string or a number) also collapses to the null pair rather than
+// throwing — a wrong-shaped *store* is still quarantined by readMarks, this
+// is only about one odd value inside an otherwise-fine object.
+export function markInfo(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return { at: value.at ?? null, via: value.via ?? null }
+  }
+  return { at: null, via: null }
+}
+
 // Write to a sibling temp file, flush it to disk, then rename into place.
 // rename(2) is atomic within a directory, so a reader (or a power cut) sees
 // either the whole old file or the whole new one, never a truncated file —
@@ -158,12 +182,27 @@ export function createMarkStore({ paths, exclusive = false }) {
 
     // Set or clear one mark. Returns the stores it actually touched, so a
     // caller can log or assert on the exclusivity side effect.
-    async set({ store, key, value }) {
+    //
+    // `via` is a short source string — "email", "web", "app" — recorded
+    // alongside an ISO timestamp when a mark is set. It is optional so an
+    // older caller that omits it still works; the mark just carries a null
+    // source. Re-setting a key that already has an `{ at, via }` record
+    // leaves the original timestamp alone (the first mark is the signal);
+    // re-setting a legacy `true` upgrades it in place.
+    async set({ store, key, value, via = null }) {
       const touched = []
       const marks = await readMarks(pathFor(store))
 
-      if (value) marks[key] = true
-      else delete marks[key]
+      if (value) {
+        const existing = marks[key]
+        if (existing && typeof existing === "object" && existing.at) {
+          // keep the first-seen record untouched
+        } else {
+          marks[key] = { at: new Date().toISOString(), via: via ?? null }
+        }
+      } else {
+        delete marks[key]
+      }
       await writeMarks(pathFor(store), marks)
       touched.push(store)
 

@@ -14,7 +14,25 @@
 // interest-servers can share a package with it; the tool wrapper that does
 // need the plugin lives in calibrationTool.js.
 
-import { readMarks } from "./markStore.js"
+import { readMarks, markInfo } from "./markStore.js"
+
+// Order a store's keys oldest-first by the mark's `at` timestamp, so a
+// later `.slice(-limit)` keeps the most recent marks and renders them
+// newest-last. Legacy marks (a bare `true`, no timestamp) sort as oldest
+// and keep their original insertion order relative to each other — the
+// best that can be done without a timestamp. This is the recency weighting
+// the `{ at, via }` mark shape was added to enable: before it, feed-radar's
+// numeric-string keys came back in numeric order, which is not chronological.
+function keysByRecency(marks) {
+  return Object.keys(marks).sort((a, b) => {
+    const at = markInfo(marks[a]).at
+    const bt = markInfo(marks[b]).at
+    if (at === bt) return 0
+    if (at === null) return -1
+    if (bt === null) return 1
+    return at < bt ? -1 : 1
+  })
+}
 
 // A mark whose record can no longer be found — an event that aged out of
 // seen-events.json, say — is dropped rather than rendered as a bare key.
@@ -54,8 +72,8 @@ export function buildCalibrationBlock({
     throw new Error("buildCalibrationBlock: describe is required")
   }
 
-  const positives = joinMarks(Object.keys(interested), records, keyFn).slice(-limit)
-  const negatives = joinMarks(Object.keys(ignored), records, keyFn).slice(-limit)
+  const positives = joinMarks(keysByRecency(interested), records, keyFn).slice(-limit)
+  const negatives = joinMarks(keysByRecency(ignored), records, keyFn).slice(-limit)
 
   // An empty block is not the same as no block. Saying "nothing has been
   // marked yet" out loud stops a model inventing a preference from silence,

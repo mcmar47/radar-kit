@@ -12,7 +12,7 @@ import { mkdtemp, readFile, writeFile, readdir, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { readMarks, writeMarks, createMarkStore } from "../src/markStore.js"
+import { readMarks, writeMarks, createMarkStore, markInfo } from "../src/markStore.js"
 import { createInterestServer, sendJson } from "../src/interestServer.js"
 import { createOneClickMarkRoute, markUrls } from "../src/oneClickMark.js"
 import { buildCalibrationBlock } from "../src/calibration.js"
@@ -20,6 +20,16 @@ import { makeKeyFn } from "../src/seenStore.js"
 
 async function tempDir() {
   return mkdtemp(path.join(tmpdir(), "radar-kit-test-"))
+}
+
+// A mark set through createMarkStore is now `{ at, via }` rather than
+// `true`. Most assertions only care which keys are present and, sometimes,
+// what `via` says — this collapses a store to `{ key: via }` (or
+// `{ key: null }` for a legacy/omitted source) so those stay one-liners.
+function viaByKey(store) {
+  return Object.fromEntries(
+    Object.entries(store).map(([k, v]) => [k, markInfo(v).via])
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -162,11 +172,53 @@ test("exclusive stores clear the opposite mark", async () => {
   })
 
   await marks.set({ store: "interested", key: "42", value: true })
-  const { touched } = await marks.set({ store: "ignored", key: "42", value: true })
+  const { touched } = await marks.set({ store: "ignored", key: "42", value: true, via: "web" })
 
   assert.deepEqual(touched, ["ignored", "interested"], "both stores were written")
   assert.deepEqual({ ...(await marks.read("interested")) }, {}, "star was cleared")
-  assert.deepEqual({ ...(await marks.read("ignored")) }, { 42: true })
+  assert.deepEqual(viaByKey(await marks.read("ignored")), { 42: "web" })
+})
+
+test("a set mark records an ISO timestamp and its source", async () => {
+  const dir = await tempDir()
+  const marks = createMarkStore({ paths: { interested: path.join(dir, "interested.json") } })
+
+  const before = Date.now()
+  await marks.set({ store: "interested", key: "42", value: true, via: "app" })
+  const { 42: mark } = await marks.read("interested")
+
+  assert.equal(mark.via, "app")
+  assert.ok(!Number.isNaN(Date.parse(mark.at)), "at is a parseable timestamp")
+  assert.ok(Date.parse(mark.at) >= before - 1000 && Date.parse(mark.at) <= Date.now() + 1000)
+})
+
+test("via defaults to null when the caller omits it", async () => {
+  const dir = await tempDir()
+  const marks = createMarkStore({ paths: { interested: path.join(dir, "interested.json") } })
+  await marks.set({ store: "interested", key: "42", value: true })
+  assert.equal((await marks.read("interested"))[42].via, null)
+})
+
+test("re-setting a mark keeps its first-seen timestamp", async () => {
+  const dir = await tempDir()
+  const marks = createMarkStore({ paths: { interested: path.join(dir, "interested.json") } })
+
+  await marks.set({ store: "interested", key: "42", value: true, via: "email" })
+  const first = (await marks.read("interested"))[42]
+  await marks.set({ store: "interested", key: "42", value: true, via: "web" })
+  const second = (await marks.read("interested"))[42]
+
+  assert.deepEqual(second, first, "neither at nor via was overwritten by the second set")
+})
+
+test("a legacy bare-true mark still reads as marked and normalizes to null pair", async () => {
+  const dir = await tempDir()
+  const store = path.join(dir, "interested.json")
+  await writeFile(store, JSON.stringify({ 42: true }), "utf8")
+
+  const marks = await readMarks(store)
+  assert.ok(marks[42], "still truthy, so every `key in marks` path is unchanged")
+  assert.deepEqual(markInfo(marks[42]), { at: null, via: null })
 })
 
 test("clearing a mark never sweeps the other store", async () => {
@@ -183,7 +235,7 @@ test("clearing a mark never sweeps the other store", async () => {
   const { touched } = await marks.set({ store: "interested", key: "42", value: false })
 
   assert.deepEqual(touched, ["interested"], "only the store being cleared")
-  assert.deepEqual({ ...(await marks.read("ignored")) }, { 42: true }, "left alone")
+  assert.deepEqual(Object.keys(await marks.read("ignored")), ["42"], "left alone")
 })
 
 test("without exclusive, both marks can coexist", async () => {
@@ -198,8 +250,8 @@ test("without exclusive, both marks can coexist", async () => {
   await marks.set({ store: "interested", key: "42", value: true })
   await marks.set({ store: "ignored", key: "42", value: true })
 
-  assert.deepEqual({ ...(await marks.read("interested")) }, { 42: true })
-  assert.deepEqual({ ...(await marks.read("ignored")) }, { 42: true })
+  assert.deepEqual(Object.keys(await marks.read("interested")), ["42"])
+  assert.deepEqual(Object.keys(await marks.read("ignored")), ["42"])
 })
 
 // ---------------------------------------------------------------------------
@@ -399,6 +451,45 @@ test("limit keeps the most recent marks", () => {
   assert.match(block, /### Starred — 10 items/)
   assert.match(block, /Event 59/, "keeps the newest")
   assert.doesNotMatch(block, /Event 49\b/, "drops the oldest")
+})
+
+test("marks are ordered by their timestamp, not by key, when limiting", () => {
+  // feed-radar's keys are numeric strings, so Object.keys order is numeric,
+  // not chronological. Event 2 was starred most recently and must survive a
+  // limit of 1; Event 0, starred first, must drop even though its key sorts
+  // first.
+  const evs = [
+    { title: "Event 0", date: "2026-09-01", category: "c", description: "d" },
+    { title: "Event 1", date: "2026-09-01", category: "c", description: "d" },
+    { title: "Event 2", date: "2026-09-01", category: "c", description: "d" },
+  ]
+  const interested = {
+    [evKey(evs[0])]: { at: "2026-09-01T00:00:00.000Z", via: "web" },
+    [evKey(evs[2])]: { at: "2026-09-03T00:00:00.000Z", via: "app" },
+    [evKey(evs[1])]: { at: "2026-09-02T00:00:00.000Z", via: "email" },
+  }
+  const block = buildCalibrationBlock({
+    interested, records: evs, keyFn: evKey, describe: evDesc, limit: 1,
+  })
+  assert.match(block, /Event 2/, "most recently marked is kept")
+  assert.doesNotMatch(block, /Event 0/)
+  assert.doesNotMatch(block, /Event 1/)
+})
+
+test("legacy bare-true marks sort as oldest against timestamped ones", () => {
+  const evs = [
+    { title: "Old", date: "2026-09-01", category: "c", description: "d" },
+    { title: "New", date: "2026-09-01", category: "c", description: "d" },
+  ]
+  const interested = {
+    [evKey(evs[0])]: true,
+    [evKey(evs[1])]: { at: "2026-09-02T00:00:00.000Z", via: "app" },
+  }
+  const block = buildCalibrationBlock({
+    interested, records: evs, keyFn: evKey, describe: evDesc, limit: 1,
+  })
+  assert.match(block, /New/)
+  assert.doesNotMatch(block, /Old/)
 })
 
 test("buildCalibrationBlock refuses to run without its two required functions", () => {
