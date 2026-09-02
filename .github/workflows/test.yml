@@ -65,6 +65,8 @@ jobs:
             const want = { 'radar-kit/server': 'createInterestServer',
                            'radar-kit/markStore': 'createMarkStore',
                            'radar-kit/seenStore': 'makeKeyFn',
+                           'radar-kit/scorecard': 'buildScorecard',
+                           'radar-kit/health': 'createHealthRoute',
                            'radar-kit/oneClickMark': 'createOneClickMarkRoute' }
             Promise.all(Object.entries(want).map(async ([spec, sym]) => {
               const m = await import(spec)

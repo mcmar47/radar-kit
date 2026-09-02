@@ -15,6 +15,7 @@ import path from "node:path"
 import { readMarks, writeMarks, createMarkStore, markInfo } from "../src/markStore.js"
 import { createInterestServer, sendJson } from "../src/interestServer.js"
 import { createOneClickMarkRoute, markUrls } from "../src/oneClickMark.js"
+import { createHealthRoute, markStoreCheck } from "../src/healthRoute.js"
 import { buildCalibrationBlock } from "../src/calibration.js"
 import { makeKeyFn } from "../src/seenStore.js"
 
@@ -721,5 +722,71 @@ test("a throwing onMarked hook neither breaks the click nor loses the mark", asy
     Object.keys(await marks.read("interested")),
     [keyOf(params)],
     "the mark is on disk even though the hook threw"
+  )
+})
+
+// ---------------------------------------------------------------------------
+// createHealthRoute — the shared GET /api/health for the long-running servers
+// ---------------------------------------------------------------------------
+
+test("health with no checks reports ok, its name, and an uptime", async () => {
+  await withServer([createHealthRoute({ name: "test-server" })], async (req) => {
+    const res = await req("/api/health")
+    assert.equal(res.status, 200)
+    const body = await res.json()
+    assert.equal(body.status, "ok")
+    assert.equal(body.name, "test-server")
+    assert.equal(typeof body.uptimeSec, "number")
+    assert.ok(!Number.isNaN(Date.parse(body.now)))
+    assert.ok(!("checks" in body), "no checks block when none were given")
+  })
+})
+
+test("a failing check makes the whole endpoint 503 / degraded", async () => {
+  const checks = async () => [
+    { name: "store:interested", ok: true },
+    { name: "store:ignored", ok: false, detail: "EACCES" },
+  ]
+  await withServer([createHealthRoute({ name: "s", checks })], async (req) => {
+    const res = await req("/api/health")
+    assert.equal(res.status, 503)
+    const body = await res.json()
+    assert.equal(body.status, "degraded")
+    assert.equal(body.checks.length, 2)
+  })
+})
+
+test("a throwing checks function is caught, not a 500", async () => {
+  const checks = async () => {
+    throw new Error("boom")
+  }
+  await withServer([createHealthRoute({ name: "s", checks })], async (req) => {
+    const res = await req("/api/health")
+    assert.equal(res.status, 503)
+    assert.match((await res.json()).checks[0].detail, /boom/)
+  })
+})
+
+test("markStoreCheck passes for a readable store set", async () => {
+  const dir = await tempDir()
+  const marks = createMarkStore({
+    paths: {
+      interested: path.join(dir, "interested.json"),
+      ignored: path.join(dir, "ignored.json"),
+    },
+  })
+  await marks.set({ store: "interested", key: "1", value: true, via: "web" })
+
+  await withServer(
+    [createHealthRoute({ name: "s", checks: markStoreCheck(marks) })],
+    async (req) => {
+      const res = await req("/api/health")
+      assert.equal(res.status, 200)
+      const body = await res.json()
+      assert.deepEqual(
+        body.checks.map((c) => [c.name, c.ok]),
+        [["store:interested", true], ["store:ignored", true]]
+      )
+    }
   )
 })

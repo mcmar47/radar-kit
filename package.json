@@ -10,6 +10,7 @@
     "./seenStore": "./src/seenStore.js",
     "./calibration": "./src/calibration.js",
     "./scorecard": "./src/scorecard.js",
+    "./health": "./src/healthRoute.js",
     "./oneClickMark": "./src/oneClickMark.js"
   },
   "scripts": {
