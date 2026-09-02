@@ -71,10 +71,16 @@ were otherwise near-identical:
 | release-radar | *(identical message)* | 166 |
 | feed-radar | "Stop a single GET from killing the interest server, and survive a bad store" | 204 |
 
-**Shared** — `src/markStore.js` (atomic temp-write + fsync + rename, the
-corrupt-store quarantine, the own-keys-only store lookup, optional
-mutual exclusion) and `src/interestServer.js` (routing, JSON body parsing,
-and the catch-all that stops one bad request exiting the process).
+**Shared** — `src/markStore.js` (the corrupt-store quarantine, the
+own-keys-only store lookup, optional mutual exclusion) and
+`src/interestServer.js` (routing, JSON body parsing, and the catch-all
+that stops one bad request exiting the process). The atomic temp-write +
+fchmod + fsync + rename underneath `writeMarks` is its own module,
+`src/atomicWrite.js` (`radar-kit/atomicWrite`) — it was byte-identical in
+markStore, in shelf's `src/store.js`, and near-identical in a third place,
+with a standing "reconcile when radar-kit comes in" note in shelf. It has,
+so `writeMarks`, shelf's `writeStore`, and the digest run log all call
+`writeFileAtomic` now.
 
 **Stayed put** — each repo's key shape, request schema, and feed-radar's
 HTML response for one-click links from the digest email. Those are

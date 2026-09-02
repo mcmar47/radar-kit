@@ -1,12 +1,13 @@
 {
   "name": "radar-kit",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./server": "./src/interestServer.js",
     "./markStore": "./src/markStore.js",
+    "./atomicWrite": "./src/atomicWrite.js",
     "./seenStore": "./src/seenStore.js",
     "./calibration": "./src/calibration.js",
     "./scorecard": "./src/scorecard.js",

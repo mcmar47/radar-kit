@@ -24,7 +24,8 @@
 // tree in behind it. See package.json's "exports" map and the note in
 // interestServer.js.
 
-import { open, readFile, rename } from "node:fs/promises"
+import { readFile, rename } from "node:fs/promises"
+import { writeFileAtomic } from "./atomicWrite.js"
 
 // A store is a flat object of string keys to `true`. Anything else on disk
 // — an array, a string, null, a number — is corruption as far as this code
@@ -115,30 +116,13 @@ export function markInfo(value) {
   return { at: null, via: null }
 }
 
-// Write to a sibling temp file, flush it to disk, then rename into place.
-// rename(2) is atomic within a directory, so a reader (or a power cut) sees
-// either the whole old file or the whole new one, never a truncated file —
-// which is what produced the crash loop readMarks() defends against.
-// The fsync matters on the Pi specifically: without it the rename can land
-// while the bytes are still only in page cache.
+// Temp file, fchmod, fsync, rename — see atomicWrite.js for why each step
+// is load-bearing (all three were real incidents). The 0644 default there
+// is what keeps these nginx-served stores world-readable regardless of the
+// writing process's umask, which is the failure this used to inline a
+// hand-rolled fchmod to guard against.
 export async function writeMarks(storePath, marks) {
-  const tmp = `${storePath}.tmp`
-  const handle = await open(tmp, "w")
-  try {
-    await handle.writeFile(JSON.stringify(marks, null, 2) + "\n", "utf8")
-    // These stores are served straight off disk by nginx as static JSON, so
-    // they must stay world-readable no matter what umask the calling
-    // process happens to have. open()'s mode argument is masked against
-    // that umask — a caller running under 0077 (a cron entry, a systemd
-    // unit without an explicit UMask=) would still produce 0600 and nginx
-    // would 403 the file. fchmod(2) via the open handle is not subject to
-    // umask, so this is deterministic regardless of who calls writeMarks.
-    await handle.chmod(0o644)
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-  await rename(tmp, storePath)
+  await writeFileAtomic(storePath, JSON.stringify(marks, null, 2) + "\n")
 }
 
 // A named set of stores — `{ interested: "/path/interested.json", ... }` —

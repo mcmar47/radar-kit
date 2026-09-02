@@ -23,14 +23,15 @@ more than once across the sibling repos, not by "these look similar."
   double as regression tests for incidents, not just spec coverage.
 - No build/lint step. CI (`.github/workflows/test.yml`) runs the suite on Node 20/22/24 on every
   push, and separately asserts that `npm install radar-kit` alone pulls exactly one package and
-  that the four non-plugin `exports` subpaths import cleanly without `@opencode-ai/plugin`.
+  that every non-plugin `exports` subpath imports cleanly without `@opencode-ai/plugin`.
 
 ## Architecture
 
-- **`index.js`** and `src/*.js` — the shared modules. `exports` in `package.json` defines these
-  subpaths (`.`, `./server`, `./markStore`, `./seenStore`, `./calibration`, `./scorecard`,
+- **`index.js`** and `src/*.js` — the shared modules. `exports` in `package.json` defines several
+  subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./health`,
   `./oneClickMark`).
-  **Keep `markStore.js`, `interestServer.js`, `seenStore.js` and `calibration.js` free of any
+  **Keep `markStore.js`, `interestServer.js`, `seenStore.js`, `calibration.js`, `scorecard.js`,
+  `healthRoute.js` and `atomicWrite.js` free of any
   import that reaches `@opencode-ai/plugin`** — that peer dependency is optional specifically so a
   bare interest-server (no opencode involved at all) can `npm install radar-kit` and pull exactly
   one package. Reintroducing that import path defeats the reason this package is usable from

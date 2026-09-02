@@ -64,6 +64,7 @@ jobs:
           node -e "
             const want = { 'radar-kit/server': 'createInterestServer',
                            'radar-kit/markStore': 'createMarkStore',
+                           'radar-kit/atomicWrite': 'writeFileAtomic',
                            'radar-kit/seenStore': 'makeKeyFn',
                            'radar-kit/scorecard': 'buildScorecard',
                            'radar-kit/health': 'createHealthRoute',

@@ -1,9 +1,10 @@
 import { tool } from "@opencode-ai/plugin/tool"
-import { readFile, open, rename, mkdir } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { renderDigestContent, validateDigestContent } from "./digest.js"
 import { writeJsonArray } from "./seenStore.js"
 import { readMarks } from "./markStore.js"
+import { writeFileAtomic } from "./atomicWrite.js"
 import { buildScorecard, appendRun } from "./scorecard.js"
 import { sendGmailMessage } from "./gmail.js"
 
@@ -32,16 +33,7 @@ async function readJsonFile(filePath, fallback) {
 }
 
 async function writeJsonFileAtomic(filePath, value) {
-  await mkdir(path.dirname(filePath), { recursive: true })
-  const tmp = `${filePath}.tmp`
-  const handle = await open(tmp, "w")
-  try {
-    await handle.writeFile(JSON.stringify(value, null, 2) + "\n", "utf8")
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-  await rename(tmp, filePath)
+  await writeFileAtomic(filePath, JSON.stringify(value, null, 2) + "\n", { ensureDir: true })
 }
 
 async function scorecardFooter(scorecard, dir) {
