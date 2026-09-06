@@ -37,6 +37,14 @@ but "this exact bug already needed fixing more than once."
 - `createFilterFutureEventsTool` — event-watch's future-date filter, kept
   here since it's already fully generic (just needs `{ title, date }`) and
   any future date-gated repo would need the exact same thing.
+- `createRecordOutcomeTool` — the silent-stall guard. Writes
+  `logs/run-outcome.json` (name overridable — release-radar uses a
+  per-cadence path) as the final action of every completed run; the wrapper
+  clears it beforehand and fails the run if it's missing after a clean exit,
+  which is how a run that stopped before rendering anything gets caught
+  rather than looking like "nothing new today". Wired into release-radar and
+  job-radar; event-watch keeps its own equivalent inline copy from before
+  this was factored out.
 
 **Shared via config, because the *shape* is identical but the data isn't:**
 - `renderDigestContent` / `validateDigestContent` — group items, render

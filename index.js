@@ -15,6 +15,7 @@ export {
   createSendDigestEmailTool,
 } from "./src/digestTools.js"
 export { createFilterFutureEventsTool } from "./src/filterFutureEvents.js"
+export { createRecordOutcomeTool } from "./src/recordOutcome.js"
 export { buildCalibrationBlock, readCalibrationBlock } from "./src/calibration.js"
 export { createCalibrationTool } from "./src/calibrationTool.js"
 export { buildScorecard, appendRun } from "./src/scorecard.js"
