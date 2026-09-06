@@ -197,11 +197,16 @@ scorecard: { noun: "picks", model: "openrouter/z-ai/glm-5.3-flash" }
 `interestedFileName` / `ignoredFileName` / `runsFileName` / `days` all have
 defaults. `model` falls back to `$DIGEST_MODEL`.
 
-**Per-run cost is not wired yet.** `buildScorecard` renders a `costUsd`
-when it is passed one, but nothing supplies it: OpenRouter cost needs the
-run wrapper to capture the generation id(s) and query
-`/api/v1/generation`, which does not exist. Until then the footer shows
-counts and model only.
+**Per-run cost** rides the same run log. `scripts/run-cost.js` (called by
+each agent's run wrapper) reads the OpenRouter inference key's lifetime
+`usage` total from `/api/v1/auth/key` before and after the run; the delta
+is that run's cost, written onto the just-logged entry by `recordRunCost`.
+No generation-id capture and no management key needed — the inference key
+reads its own usage (`src/openrouterCost.js`). Because OpenRouter's total
+lags the run by a moment, the wrapper records the figure *after* the run,
+so a digest footer shows the **previous** run's cost — `· $0.03 last run`.
+A run whose delta comes back `<= 0` (sampled before the total caught up)
+records nothing rather than a misleading `$0.00`.
 
 ## Using this in a repo
 

@@ -5,7 +5,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { buildScorecard, appendRun } from "../src/scorecard.js"
+import { buildScorecard, appendRun, recordRunCost, latestRunCost } from "../src/scorecard.js"
 import { renderDigestContent } from "../src/digest.js"
 
 const NOW = Date.parse("2026-09-10T12:00:00.000Z")
@@ -64,17 +64,61 @@ test("model label is shortened to its last path segment; cost shown when given",
     costUsd: 0.037,
     now: NOW,
   })
-  assert.match(sc.line, /· glm-5\.3-flash · \$0\.04 this run$/)
+  assert.match(sc.line, /· glm-5\.3-flash · \$0\.04 last run$/)
 })
 
 test("a sub-cent cost renders as <$0.01, a zero cost as $0.00", () => {
   assert.match(
     buildScorecard({ model: "m", costUsd: 0.002, now: NOW }).line,
-    /<\$0\.01 this run/
+    /<\$0\.01 last run/
   )
   assert.match(
     buildScorecard({ model: "m", costUsd: 0, now: NOW }).line,
-    /\$0\.00 this run/
+    /\$0\.00 last run/
+  )
+})
+
+test("recordRunCost attaches cost to this run's entry when send_digest_email logged one", () => {
+  const runStart = daysAgo(0.02) // ~30 min ago
+  const runs = [
+    { at: daysAgo(2), count: 5, model: "m" },
+    { at: daysAgo(0.01), count: 8, model: "m" }, // logged by this run's send
+  ]
+  const next = recordRunCost(runs, 0.041, runStart)
+  assert.equal(next.length, 2)
+  assert.equal(next[1].costUsd, 0.041)
+  assert.equal(next[1].count, 8, "the send entry is otherwise untouched")
+  assert.ok(!("costUsd" in next[0]))
+})
+
+test("recordRunCost appends a zero-count carrier when the run sent nothing", () => {
+  const runStart = daysAgo(0.02)
+  const runs = [{ at: daysAgo(3), count: 4, model: "m" }] // predates this run
+  const next = recordRunCost(runs, 0.006, runStart, { now: () => daysAgo(0) })
+  assert.equal(next.length, 2)
+  assert.equal(next[1].count, 0)
+  assert.equal(next[1].costUsd, 0.006)
+})
+
+test("recordRunCost ignores a nonsense delta (negative, NaN, non-number)", () => {
+  const runs = [{ at: daysAgo(0.01), count: 3 }]
+  for (const bad of [-0.5, NaN, "0.1", undefined]) {
+    const next = recordRunCost(runs, bad, daysAgo(0.02))
+    assert.ok(!("costUsd" in next[0]), `delta ${bad} should not be recorded`)
+    assert.equal(next.length, 1)
+  }
+})
+
+test("latestRunCost returns the newest logged cost, or undefined", () => {
+  assert.equal(latestRunCost([]), undefined)
+  assert.equal(latestRunCost([{ count: 1 }, { count: 2 }]), undefined)
+  assert.equal(
+    latestRunCost([
+      { count: 1, costUsd: 0.02 },
+      { count: 2, costUsd: 0.05 },
+      { count: 3 },
+    ]),
+    0.05
   )
 })
 

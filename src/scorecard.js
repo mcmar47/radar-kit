@@ -95,7 +95,10 @@ export function buildScorecard({
 
   const tailParts = []
   if (modelLabel) tailParts.push(modelLabel)
-  if (cost) tailParts.push(`${cost} this run`)
+  // "last run", not "this run": the cost is filled in by the run wrapper
+  // after the run finishes (OpenRouter's usage total lags the run slightly),
+  // so the figure a digest shows is always its predecessor's.
+  if (cost) tailParts.push(`${cost} last run`)
   const tail = tailParts.length ? ` · ${tailParts.join(" · ")}` : ""
 
   const line = `Last ${days} days: ${counts}${tail}`
@@ -132,4 +135,47 @@ export function appendRun(runs, entry, { keep = 90 } = {}) {
     ...(typeof entry.costUsd === "number" ? { costUsd: entry.costUsd } : {}),
   })
   return next.slice(-keep)
+}
+
+/**
+ * Record a run's dollar cost into the log after the run has finished.
+ * Pure — returns the new array, does no IO.
+ *
+ * If the newest entry belongs to this run (its `at` is at/after
+ * `runStartIso`, i.e. `send_digest_email` already logged the send), the cost
+ * is attached to it. Otherwise — a run that sent nothing, so has no entry —
+ * a `count: 0` row is appended purely to carry the figure. `deliveredWithin`
+ * ignores zero-count rows, so this never inflates the "delivered" total.
+ *
+ * @param {object[]} runs
+ * @param {number} costUsd     `usageAfter - usageBefore`; ignored if not a finite number >= 0
+ * @param {string} runStartIso ISO timestamp captured before the run began
+ */
+export function recordRunCost(runs, costUsd, runStartIso, { keep = 90, now = () => new Date().toISOString() } = {}) {
+  const list = Array.isArray(runs) ? [...runs] : []
+  if (typeof costUsd !== "number" || !Number.isFinite(costUsd) || costUsd < 0) {
+    return list
+  }
+  const last = list[list.length - 1]
+  const lastIsThisRun =
+    last && typeof last.at === "string" && runStartIso && last.at >= runStartIso
+  if (lastIsThisRun) {
+    list[list.length - 1] = { ...last, costUsd }
+    return list
+  }
+  list.push({ at: now(), count: 0, costUsd })
+  return list.slice(-keep)
+}
+
+/**
+ * The `costUsd` of the newest run-log entry that has one, or undefined.
+ * This is what a fresh digest's footer shows — see the "last run" note in
+ * buildScorecard.
+ */
+export function latestRunCost(runs) {
+  if (!Array.isArray(runs)) return undefined
+  for (let i = runs.length - 1; i >= 0; i--) {
+    if (typeof runs[i]?.costUsd === "number") return runs[i].costUsd
+  }
+  return undefined
 }

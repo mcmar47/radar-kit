@@ -5,7 +5,7 @@ import { renderDigestContent, validateDigestContent } from "./digest.js"
 import { writeJsonArray } from "./seenStore.js"
 import { readMarks } from "./markStore.js"
 import { writeFileAtomic } from "./atomicWrite.js"
-import { buildScorecard, appendRun } from "./scorecard.js"
+import { buildScorecard, appendRun, latestRunCost } from "./scorecard.js"
 import { sendGmailMessage } from "./gmail.js"
 
 // A `scorecard` block, when passed to the render/send tools, turns on the
@@ -20,8 +20,9 @@ import { sendGmailMessage } from "./gmail.js"
 //   }
 // The send tool also appends `{ at, count, model }` to the runs file after
 // a successful send, so the "delivered last N days" number builds up over
-// time. costUsd is left unset — see README, wiring per-run OpenRouter cost
-// needs a generation-id capture in the run wrapper that does not exist yet.
+// time. The run wrapper then fills in `costUsd` on that entry once the run
+// ends (radar-kit/bin/run-cost.js + openrouterCost.js), so the footer shows
+// "$X last run" from the previous run's logged figure.
 
 async function readJsonFile(filePath, fallback) {
   try {
@@ -60,6 +61,10 @@ async function scorecardFooter(scorecard, dir) {
     days,
     model,
     noun,
+    // The wrapper writes this run's cost onto the log only after the run
+    // ends, so the newest logged cost is the previous run's — shown as
+    // "$X last run". null until the first wrapper with cost capture runs.
+    costUsd: latestRunCost(runs),
   })
   return { footerHtml: html, footerText: text }
 }
