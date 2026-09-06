@@ -34,7 +34,7 @@ import { escapeHtml } from "./html.js"
 //                      date string.
 
 export function renderDigestContent(config, items, asOf, opts = {}) {
-  const { footerHtml = "", footerText = "" } = opts
+  const { footerHtml = "", footerText = "", extraHtml = "", extraText = "" } = opts
   const {
     pageTitle,
     unitLabel,
@@ -53,13 +53,19 @@ export function renderDigestContent(config, items, asOf, opts = {}) {
   }
   const order = groupOrder ?? Object.keys(byGroup).sort()
 
-  const count = countLabel(items.length)
+  // An items-less render is legitimate when there's an extra section to
+  // carry (feed-radar on a no-picks day with a Research Desk answer): skip
+  // the "0 new pick(s)" count line, which would only read as a bug.
+  const headline =
+    items.length === 0 && (extraHtml || extraText)
+      ? `as of ${asOf}`
+      : `${countLabel(items.length)} as of ${asOf}`
   const htmlParts = [
     `<html><head><meta charset="utf-8"><title>${escapeHtml(pageTitle)}</title></head><body>`,
     `<h1>${escapeHtml(pageTitle)}</h1>`,
-    `<p>${count} as of ${asOf}</p>`,
+    `<p>${headline}</p>`,
   ]
-  const textParts = [`${pageTitle} — ${count} as of ${asOf}\n`]
+  const textParts = [`${pageTitle} — ${headline}\n`]
 
   for (const id of order) {
     const group = byGroup[id]
@@ -74,12 +80,14 @@ export function renderDigestContent(config, items, asOf, opts = {}) {
     }
     htmlParts.push("</ul>")
   }
-  // The footer (a scorecard line, say) sits after the last group and
-  // before the closing tags, so validateDigestContent's "ends with
-  // </body></html>" check still holds and it adds no <h2> to throw off the
-  // group-heading count.
+  // An extra section (the Research Desk block), then the footer (the
+  // scorecard line), both after the last group and before the closing tags.
+  // Neither may contain an <h2> — validateDigestContent counts those as
+  // group headings — and the closing-tag check still holds.
+  if (extraHtml) htmlParts.push(extraHtml)
   if (footerHtml) htmlParts.push(footerHtml)
   htmlParts.push("</body></html>")
+  if (extraText) textParts.push(extraText)
   if (footerText) textParts.push(footerText)
 
   return {

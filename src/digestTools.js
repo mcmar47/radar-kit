@@ -69,12 +69,29 @@ async function scorecardFooter(scorecard, dir) {
   return { footerHtml: html, footerText: text }
 }
 
+// `extraSection`, when passed, is `{ read: async (dir) => ({ html, text,
+// id?, onDelivered? }) | null }`. Its block is rendered after the item
+// groups and before the scorecard footer, and — in the send tool — lets a
+// digest go out with zero items when the section alone is worth sending
+// (feed-radar + the Research Desk on a no-picks day). The block must carry
+// no <h2>. See src/researchDesk.js for the one implementation.
+async function extraSectionContent(extraSection, dir) {
+  if (!extraSection?.read) return null
+  try {
+    return await extraSection.read(dir)
+  } catch (err) {
+    console.error("digest extraSection.read failed:", err)
+    return null
+  }
+}
+
 export function createRenderDigestTool({
   digestConfig,
   stagingFileName,
   argsShape,
   description,
   scorecard,
+  extraSection,
 }) {
   return tool({
     description,
@@ -82,9 +99,14 @@ export function createRenderDigestTool({
     execute: async ({ items }, context) => {
       const today = new Date().toISOString().slice(0, 10)
       const footer = await scorecardFooter(scorecard, context.directory)
-      const rendered = renderDigestContent(digestConfig, items, today, footer)
+      const extra = await extraSectionContent(extraSection, context.directory)
+      const rendered = renderDigestContent(digestConfig, items, today, {
+        ...footer,
+        extraHtml: extra?.html ?? "",
+        extraText: extra?.text ?? "",
+      })
       await writeJsonArray(context.directory, stagingFileName, items)
-      return JSON.stringify(rendered, null, 2)
+      return JSON.stringify({ ...rendered, extraSection: Boolean(extra) }, null, 2)
     },
   })
 }
@@ -114,29 +136,38 @@ export function createSendDigestEmailTool({
   extraResultFields,
   description,
   scorecard,
+  extraSection,
 }) {
   return tool({
     description,
     args: { subject: tool.schema.string() },
     execute: async ({ subject }, context) => {
       const filePath = path.join(context.directory, stagingFileName)
-      let raw
+      let items = []
       try {
-        raw = await readFile(filePath, "utf8")
+        const parsed = JSON.parse(await readFile(filePath, "utf8"))
+        if (Array.isArray(parsed)) items = parsed
       } catch (err) {
-        if (err.code === "ENOENT") {
-          throw new Error(`${stagingFileName} not found — call render_digest first.`)
-        }
-        throw err
+        // A missing staging file is fine when there's an extra section to
+        // carry; render_digest just wasn't called on a no-items day.
+        if (err.code !== "ENOENT") throw err
       }
-      const items = JSON.parse(raw)
-      if (!Array.isArray(items) || items.length === 0) {
-        throw new Error(`${stagingFileName} is empty or invalid — nothing to send.`)
+
+      const extra = await extraSectionContent(extraSection, context.directory)
+
+      if (items.length === 0 && !extra) {
+        // Not an error: feed-radar calls this on a no-picks day too, in case
+        // a Research Desk answer is waiting, and most days there isn't one.
+        return JSON.stringify({ sent: false, reason: "nothing to send" }, null, 2)
       }
 
       const today = new Date().toISOString().slice(0, 10)
       const footer = await scorecardFooter(scorecard, context.directory)
-      const { html, text } = renderDigestContent(digestConfig, items, today, footer)
+      const { html, text } = renderDigestContent(digestConfig, items, today, {
+        ...footer,
+        extraHtml: extra?.html ?? "",
+        extraText: extra?.text ?? "",
+      })
       const validation = validateDigestContent(digestConfig, html, text, items)
       if (!validation.pass) {
         throw new Error(
@@ -146,6 +177,17 @@ export function createSendDigestEmailTool({
       }
 
       const result = await sendGmailMessage({ to: digestRecipient, subject, text, html })
+
+      // Tell the extra section's source it went out (Research Desk stamps
+      // deliveredAt). Best-effort — the section's own freshness window is
+      // the real guard against a re-send, so a failed callback is harmless.
+      if (extra?.onDelivered) {
+        try {
+          await extra.onDelivered()
+        } catch (err) {
+          console.error("send_digest_email: extraSection.onDelivered failed:", err)
+        }
+      }
 
       // Record this run's size so future footers can total "delivered last
       // N days". Only after a confirmed send, and never fatal: a failure to
@@ -169,10 +211,12 @@ export function createSendDigestEmailTool({
 
       return JSON.stringify(
         {
+          sent: true,
           messageId: result.id,
           threadId: result.threadId,
           itemCount: items.length,
-          ...(extraResultFields ? extraResultFields(items) : {}),
+          ...(extra ? { extraSection: extra.id ?? true } : {}),
+          ...(extraResultFields && items.length ? extraResultFields(items) : {}),
         },
         null,
         2

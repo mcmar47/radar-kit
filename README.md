@@ -45,6 +45,14 @@ but "this exact bug already needed fixing more than once."
   rather than looking like "nothing new today". Wired into release-radar and
   job-radar; event-watch keeps its own equivalent inline copy from before
   this was factored out.
+- `readPendingResearchAnswer` — delivery glue for the `research-desk` repo
+  (Overnight Research Desk). Reads its `data/desk.json`; if an answered
+  question is waiting undelivered and younger than ~22h, returns it as a
+  digest section (`{ html, text, id, onDelivered }`) with no `<h2>`.
+  feed-radar passes it to `createRenderDigestTool` / `createSendDigestEmailTool`
+  as `extraSection: { read }`; the section renders after the item groups and
+  before the scorecard footer, and the send tool will send a digest with
+  zero items when the section alone is worth sending. Dependency-free.
 
 **Shared via config, because the *shape* is identical but the data isn't:**
 - `renderDigestContent` / `validateDigestContent` — group items, render

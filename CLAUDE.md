@@ -17,14 +17,16 @@ more than once across the sibling repos, not by "these look similar."
 
 ## Commands
 
-- **Test:** `npm test` (runs `node --test`). Four files: `test/radar-kit.test.js` (digest
+- **Test:** `npm test` (runs `node --test`). `test/radar-kit.test.js` (digest
   render/validate, key normalization, HTML escaping, MIME header injection),
   `test/interest-server.test.js` (mark store + its `{ at, via }` shape, request shell,
   calibration join and its recency ordering, one-click route + its `onMarked` hook),
-  `test/scorecard.test.js` (the digest-footer scorecard and the run log), and
-  `test/atomic-write.test.js` (the atomic-write / corrupt-store plumbing). The interest-server
-  tests are written to fail against the pre-fix behavior of real bugs found on the Pi, so they
-  double as regression tests for incidents, not just spec coverage.
+  `test/scorecard.test.js` (the digest-footer scorecard and the run log),
+  `test/atomic-write.test.js` (the atomic-write / corrupt-store plumbing), and
+  `test/research-desk.test.js` (`readPendingResearchAnswer` + `renderDigestContent`'s
+  extra-section handling). The interest-server tests are written to fail against the pre-fix
+  behavior of real bugs found on the Pi, so they double as regression tests for incidents, not
+  just spec coverage.
 - No build/lint step. CI (`.github/workflows/test.yml`) runs the suite on Node 20/22/24 on every
   push, and separately asserts that `npm install radar-kit` alone pulls exactly one package and
   that every non-plugin `exports` subpath imports cleanly without `@opencode-ai/plugin`.
