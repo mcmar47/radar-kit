@@ -1,11 +1,14 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) and other AI coding agents when
+working with code in this repository. `AGENTS.md` is a symlink to this file — one copy, so they
+can't drift.
 
 ## What this repo is
 
-Shared plugin code for `event-watch`, `job-radar`, `release-radar` (and, via `radar-kit/markStore`
-and friends, `shelf`) — a handful of opencode-driven digest agents that share the same overall
+Shared plugin code for `event-watch`, `job-radar`, `release-radar`, `feed-radar` (and, via
+`radar-kit/markStore` and friends, `shelf`) — a handful of opencode-driven digest agents that
+share the same overall
 shape (search/triage, dedup against a JSON store, render+send an HTML/text digest, update the
 store) but track different domains. This package factors out what was actually identical or
 same-shaped across their `.opencode/plugins/` files and interest-servers. See README.md for the
@@ -14,11 +17,12 @@ more than once across the sibling repos, not by "these look similar."
 
 ## Commands
 
-- **Test:** `npm test` (runs `node --test`). Three files: `test/radar-kit.test.js` (digest
+- **Test:** `npm test` (runs `node --test`). Four files: `test/radar-kit.test.js` (digest
   render/validate, key normalization, HTML escaping, MIME header injection),
   `test/interest-server.test.js` (mark store + its `{ at, via }` shape, request shell,
-  calibration join and its recency ordering, one-click route + its `onMarked` hook), and
-  `test/scorecard.test.js` (the digest-footer scorecard and the run log). The interest-server
+  calibration join and its recency ordering, one-click route + its `onMarked` hook),
+  `test/scorecard.test.js` (the digest-footer scorecard and the run log), and
+  `test/atomic-write.test.js` (the atomic-write / corrupt-store plumbing). The interest-server
   tests are written to fail against the pre-fix behavior of real bugs found on the Pi, so they
   double as regression tests for incidents, not just spec coverage.
 - No build/lint step. CI (`.github/workflows/test.yml`) runs the suite on Node 20/22/24 on every
@@ -49,7 +53,8 @@ more than once across the sibling repos, not by "these look similar."
 
 Editing this repo does not by itself update anything — `pi-ops/update-radar-kit.sh`
 (run over ssh, `~/Projects/pi-ops/update-radar-kit.sh` on the Pi) installs the new version into
-all seven consuming directories (four `.opencode/`, three `server/`) and then **restarts the three
-interest-servers**, since they're long-running systemd services holding the old module in memory —
-a reinstall alone does not ship a fix to them. The deploy flow is: push this repo, then run that
+every consuming directory and then **restarts the long-running interest-servers**, since they
+hold the old module in memory and a reinstall alone does not ship a fix to them. Run
+`update-radar-kit.sh --describe` for the current list of directories and services (deliberately
+not restated here — the counts kept drifting). The deploy flow is: push this repo, then run that
 script over ssh — it does not pull the consumer repos themselves.

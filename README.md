@@ -1,12 +1,12 @@
 # radar-kit
 
-Shared plugin code for event-watch, job-radar, and release-radar — three
-opencode-driven digest agents that share the same overall shape (search the
-web, dedup against a JSON store, render+send an HTML/text digest, update
-the store) but track different domains. This package factors out what was
-actually identical or same-shaped across their three `.opencode/plugins/`
-files, leaving each repo's own file to hold only what's genuinely specific
-to its domain.
+Shared plugin code for event-watch, job-radar, release-radar and feed-radar
+— four opencode-driven digest agents that share the same overall shape
+(search the web, dedup against a JSON store, render+send an HTML/text
+digest, update the store) but track different domains. This package factors
+out what was actually identical or same-shaped across their
+`.opencode/plugins/` files, leaving each repo's own file to hold only
+what's genuinely specific to its domain.
 
 ## Why this exists
 
@@ -237,15 +237,16 @@ An interest-server's `server/package.json` needs only this — no
 }
 ```
 
-`pi-ops/update-radar-kit.sh` installs into all seven consuming directories
-(four `.opencode/`, three `server/`) and then **restarts the three
-interest-servers** — they are long-running systemd services holding the old
+`pi-ops/update-radar-kit.sh` installs into every consuming directory and
+then **restarts the long-running interest-servers** — they hold the old
 module in memory, so unlike the agents, a reinstall alone does not ship a
-fix to them.
+fix to them. `update-radar-kit.sh --describe` prints the current directory
+and service list; it isn't restated here because the counts kept drifting
+from the script.
 
 ## Testing
 
-`npm test` runs `node --test`. Two files:
+`npm test` runs `node --test` (currently ~82 tests across four files):
 
 - `test/radar-kit.test.js` — digest rendering/validation, key
   normalization, HTML escaping, MIME header injection.
@@ -254,6 +255,9 @@ fix to them.
   failure that actually happened on the Pi and was fixed by hand in each
   repo separately; they are written to fail against the pre-fix behaviour,
   which is the only way to know the fix is really present.
+- `test/scorecard.test.js` — the digest-footer scorecard and the run log.
+- `test/atomic-write.test.js` — the atomic-write / corrupt-store plumbing
+  the interest-servers depend on.
 
 The `create*Tool` factories still aren't covered directly, since they
 depend on `@opencode-ai/plugin` (an *optional* peerDependency this package
@@ -263,4 +267,5 @@ consuming repo's own scheduled runs. The pure functions underneath them
 
 CI runs the suite on Node 20/22/24 on every push, and separately asserts
 that installing this package alone pulls exactly one package and that the
-four non-plugin subpaths import cleanly without it.
+non-plugin subpaths (`server`, `markStore`, `atomicWrite`, `seenStore`,
+`scorecard`, `gmail`, `health`, `oneClickMark`) import cleanly without it.

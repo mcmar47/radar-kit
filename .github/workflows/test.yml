@@ -1,9 +1,10 @@
 # radar-kit is installed straight from this repo's main branch
-# (github:mcmar47/radar-kit) by seven directories across four repos, and
-# rolled out to all of them at once by pi-ops/update-radar-kit.sh. There is
-# no version tag in between to hold a bad commit back, so main being green
-# is the only gate that exists before a change reaches four unattended
-# scheduled agents and three always-on services.
+# (github:mcmar47/radar-kit) by every directory pi-ops/update-radar-kit.sh
+# names (run it with --describe for the current list), and rolled out to all
+# of them at once by that script. There is no version tag in between to hold
+# a bad commit back, so main being green is the only gate that exists before
+# a change reaches the unattended scheduled agents and the always-on
+# interest-servers.
 name: test
 
 on:
