@@ -69,6 +69,7 @@ jobs:
                            'radar-kit/seenStore': 'makeKeyFn',
                            'radar-kit/scorecard': 'buildScorecard',
                            'radar-kit/gmail': 'sendGmailMessage',
+                           'radar-kit/ntfy': 'sendNtfyPush',
                            'radar-kit/health': 'createHealthRoute',
                            'radar-kit/oneClickMark': 'createOneClickMarkRoute',
                            'radar-kit/reviewedRoute': 'createReviewedRoute' }

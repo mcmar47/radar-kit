@@ -22,9 +22,15 @@ more than once across the sibling repos, not by "these look similar."
   `test/interest-server.test.js` (mark store + its `{ at, via }` shape, request shell,
   calibration join and its recency ordering, one-click route + its `onMarked` hook),
   `test/scorecard.test.js` (the digest-footer scorecard and the run log),
-  `test/atomic-write.test.js` (the atomic-write / corrupt-store plumbing), and
+  `test/atomic-write.test.js` (the atomic-write / corrupt-store plumbing),
   `test/research-desk.test.js` (`readPendingResearchAnswer` + `renderDigestContent`'s
-  extra-section handling). The interest-server tests are written to fail against the pre-fix
+  extra-section handling), and
+  `test/mark-rate.test.js` (the fleet mark-rate report, its once-a-week
+  disk-reading section + state-file gate, and `combineExtraSections`), and
+  `test/ntfy.test.js` (the C4 push channel: topic-file read, the POST +
+  header-injection guard, the "exactly one imminent item" filter, the
+  `continuum://` deep link). The
+  interest-server tests are written to fail against the pre-fix
   behavior of real bugs found on the Pi, so they double as regression tests for incidents, not
   just spec coverage.
 - No build/lint step. CI (`.github/workflows/test.yml`) runs the suite on Node 20/22/24 on every
@@ -34,14 +40,16 @@ more than once across the sibling repos, not by "these look similar."
 ## Architecture
 
 - **`index.js`** and `src/*.js` — the shared modules. `exports` in `package.json` defines several
-  subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./gmail`, `./health`,
+  subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./gmail`, `./ntfy`, `./health`,
   `./oneClickMark`, `./reviewedRoute`).
   **Keep `markStore.js`, `interestServer.js`, `seenStore.js`, `calibration.js`, `scorecard.js`, `gmail.js`,
-  `healthRoute.js`, `oneClickMark.js`, `reviewedRoute.js` and `atomicWrite.js` free of any
+  `ntfy.js`, `healthRoute.js`, `oneClickMark.js`, `reviewedRoute.js` and `atomicWrite.js` free of any
   import that reaches `@opencode-ai/plugin`** — that peer dependency is optional specifically so a
   bare interest-server (no opencode involved at all) can `npm install radar-kit` and pull exactly
   one package. Reintroducing that import path defeats the reason this package is usable from
-  `server/package.json` in the first place.
+  `server/package.json` in the first place. (`markRate.js`, `markRateSection.js`,
+  `combineExtraSections.js` and `highlight.js` are also plugin-free but reached only through the
+  barrel, so they carry no subpath obligation — the CI check enumerates the subpaths above.)
 - **`src/calibration.js`** joins a repo's star/reject mark file back to its records file by
   `keyFields`, which must match what that repo's interest-server writes or the join silently finds
   nothing. See README's table for all four repos' `keyFields`. Every repo is now wired up;

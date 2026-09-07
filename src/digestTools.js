@@ -7,6 +7,7 @@ import { readMarks } from "./markStore.js"
 import { writeFileAtomic } from "./atomicWrite.js"
 import { buildScorecard, appendRun, latestRunCost } from "./scorecard.js"
 import { sendGmailMessage } from "./gmail.js"
+import { readPushTopic, sendNtfyPush } from "./ntfy.js"
 
 // A `scorecard` block, when passed to the render/send tools, turns on the
 // digest footer line. Shape:
@@ -129,6 +130,27 @@ export function createValidateDigestTool({ digestConfig, argsShape, description 
 // and sends via the Gmail API in one atomic step — the actual digest
 // content never passes back through the model as text between tool calls,
 // which is where long-content retyping corrupts it.
+// `push`, when passed, is `{ pickHighlight: (sentItems) => ({ title,
+// message, clickUrl?, tags?, priority? }) | null }`. After a confirmed send,
+// pickHighlight runs against exactly the items that went out; a non-null
+// return is POSTed as one ntfy notification (radar-kit/ntfy) to the topic in
+// ~/.config/pi-ops/ntfy-push-topic. It is strictly post-send and
+// best-effort: a missing topic, a null highlight, or a failed POST all leave
+// the digest result untouched. Only event-watch and release-radar pass this
+// — see NEW-IDEAS.md C4 and each plugin's pickHighlight.
+async function maybePush(push, items) {
+  if (!push?.pickHighlight || !Array.isArray(items) || items.length === 0) return
+  try {
+    const highlight = push.pickHighlight(items)
+    if (!highlight) return
+    const topic = await readPushTopic()
+    if (!topic) return
+    await sendNtfyPush({ topic, ...highlight })
+  } catch (err) {
+    console.error("send_digest_email: highlight push failed:", err)
+  }
+}
+
 export function createSendDigestEmailTool({
   digestConfig,
   stagingFileName,
@@ -137,6 +159,7 @@ export function createSendDigestEmailTool({
   description,
   scorecard,
   extraSection,
+  push,
 }) {
   return tool({
     description,
@@ -188,6 +211,10 @@ export function createSendDigestEmailTool({
           console.error("send_digest_email: extraSection.onDelivered failed:", err)
         }
       }
+
+      // One push for the single time-critical row, if this repo asked for
+      // one and exactly one item qualifies. Strictly post-send, best-effort.
+      await maybePush(push, items)
 
       // Record this run's size so future footers can total "delivered last
       // N days". Only after a confirmed send, and never fatal: a failure to

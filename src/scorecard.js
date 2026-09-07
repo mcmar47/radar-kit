@@ -22,31 +22,48 @@ import { markInfo } from "./markStore.js"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// How many marks in `store` were made within the last `days` days.
-function countWithin(store, days, now) {
-  const cutoff = now - days * DAY_MS
+/**
+ * How many marks in `store` were made at or after `cutoffMs` (epoch ms).
+ * A mark with no `at` (a legacy bare `true`) is never counted — it predates
+ * timestamped marks by definition. Exported so the fleet mark-rate report
+ * (markRate.js) counts marks by the exact same rule as this footer, over
+ * both a trailing window and a since-anchor cutoff.
+ */
+export function countMarksSince(store, cutoffMs) {
   let n = 0
-  for (const value of Object.values(store)) {
+  for (const value of Object.values(store || {})) {
     const at = markInfo(value).at
     if (at) {
       const t = Date.parse(at)
-      if (!Number.isNaN(t) && t >= cutoff) n++
+      if (!Number.isNaN(t) && t >= cutoffMs) n++
     }
   }
   return n
 }
 
-// Sum the `count` field of run-log entries whose `at` is within the window.
-// The current run is not in the log yet when this is built, so this is
-// genuinely "delivered previously", not including today.
-function deliveredWithin(runs, days, now) {
-  const cutoff = now - days * DAY_MS
+/**
+ * Sum the `count` field of run-log entries whose `at` is at or after
+ * `cutoffMs`. The current run is not in the log yet when this is read, so
+ * this is genuinely "delivered previously", not including today. Exported
+ * for markRate.js — same reason as countMarksSince.
+ */
+export function sumDeliveredSince(runs, cutoffMs) {
   let total = 0
-  for (const run of runs) {
+  for (const run of runs || []) {
     const t = Date.parse(run?.at ?? "")
-    if (!Number.isNaN(t) && t >= cutoff) total += Number(run.count) || 0
+    if (!Number.isNaN(t) && t >= cutoffMs) total += Number(run.count) || 0
   }
   return total
+}
+
+// How many marks in `store` were made within the last `days` days.
+function countWithin(store, days, now) {
+  return countMarksSince(store, now - days * DAY_MS)
+}
+
+// Sum the `count` field of run-log entries whose `at` is within the window.
+function deliveredWithin(runs, days, now) {
+  return sumDeliveredSince(runs, now - days * DAY_MS)
 }
 
 // Round a small dollar amount for display: cents for anything under $10,

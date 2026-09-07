@@ -33,6 +33,19 @@ but "this exact bug already needed fixing more than once."
   `sendGmailMessage({ attachments: [{ filename, contentType, content }] })`
   wraps the alternative body in `multipart/mixed` and base64s each
   payload — added for shelf's monthly cover-grid PNG.
+- `sendNtfyPush` / `readPushTopic` (`radar-kit/ntfy`, dependency-free) — one
+  push to the phone via ntfy.sh, the other way this fleet reaches it, for
+  the single time-critical row in a digest that just went out (NEW-IDEAS.md
+  C4). Reads the topic from `~/.config/pi-ops/ntfy-push-topic` — a **second**
+  topic, kept separate from `pi-ops/alert.sh`'s ops-alert topic so each can
+  be muted independently. `send_digest_email` takes an optional `push: {
+  pickHighlight }`; `pickHighlight(sentItems)` runs post-send and, only when
+  it returns non-null, one notification goes out. Best-effort throughout — a
+  missing topic file, a null highlight, or a failed POST all leave the digest
+  result untouched. Only event-watch and release-radar pass it.
+  `soleImminentItem` (in `highlight.js`) is the strict "exactly one item is
+  within N days" filter both use; `continuumItemLink` builds the
+  `continuum://item?origin=…&key=…` deep link the notification taps through.
 - `escapeHtml`.
 - `createFilterFutureEventsTool` — event-watch's future-date filter, kept
   here since it's already fully generic (just needs `{ title, date }`) and
@@ -53,6 +66,22 @@ but "this exact bug already needed fixing more than once."
   as `extraSection: { read }`; the section renders after the item groups and
   before the scorecard footer, and the send tool will send a digest with
   zero items when the section alone is worth sending. Dependency-free.
+- `buildMarkRateReport` / `createMarkRateSection` — the fleet mark-rate
+  report (FUTURE-PROJECTS.md project 7's "one measurement worth taking
+  now"). For each radar and the fleet as a whole: what fraction of delivered
+  digest items (`logs/digest-runs.json` counts) got any star/reject decision
+  (`interested.json` + `ignored.json`, by mark timestamp — same rule as the
+  scorecard), over the last 7 days and cumulatively since 2026-08-30 as the
+  trend anchor. `buildMarkRateReport` is the pure compute+render half (no fs,
+  no plugin — the fleet-wide generalization of `scorecard.js`, whose
+  `countMarksSince` / `sumDeliveredSince` it reuses). `createMarkRateSection`
+  reads the sibling repos off disk and returns an `extraSection`-shaped
+  `{ read }` gated to once every ~7 days by a Pi-local
+  `logs/mark-rate.json`, so it rides one feed-radar digest a week.
+- `combineExtraSections([a, b, …])` — fold several `extraSection` `{ read }`
+  objects into one. feed-radar carries two (Research Desk answer + weekly
+  mark-rate); results concatenate in order, `onDelivered` fans out, all-null
+  → null.
 
 **Shared via config, because the *shape* is identical but the data isn't:**
 - `renderDigestContent` / `validateDigestContent` — group items, render
@@ -294,7 +323,7 @@ from the script.
 
 ## Testing
 
-`npm test` runs `node --test` (currently ~82 tests across four files):
+`npm test` runs `node --test` (~130 tests):
 
 - `test/radar-kit.test.js` — digest rendering/validation, key
   normalization, HTML escaping, MIME header injection.
@@ -306,6 +335,11 @@ from the script.
 - `test/reviewed-route.test.js` — the `POST /api/reviewed` route: its three
   body shapes, and the key-matches-the-mark-routes contract.
 - `test/scorecard.test.js` — the digest-footer scorecard and the run log.
+- `test/mark-rate.test.js` — the fleet mark-rate report, its once-a-week
+  disk-reading section + state-file gate, and `combineExtraSections`.
+- `test/ntfy.test.js` — the C4 push channel: the topic-file read, the POST
+  and its header-injection guard, the "exactly one imminent item" filter,
+  and the `continuum://` deep link.
 - `test/atomic-write.test.js` — the atomic-write / corrupt-store plumbing
   the interest-servers depend on.
 
@@ -318,5 +352,5 @@ consuming repo's own scheduled runs. The pure functions underneath them
 CI runs the suite on Node 20/22/24 on every push, and separately asserts
 that installing this package alone pulls exactly one package and that the
 non-plugin subpaths (`server`, `markStore`, `atomicWrite`, `seenStore`,
-`scorecard`, `gmail`, `health`, `oneClickMark`, `reviewedRoute`) import
-cleanly without it.
+`scorecard`, `gmail`, `ntfy`, `health`, `oneClickMark`, `reviewedRoute`)
+import cleanly without it.
