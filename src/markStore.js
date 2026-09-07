@@ -206,5 +206,15 @@ export function createMarkStore({ paths, exclusive = false }) {
 
       return { touched }
     },
+
+    // Empty every named store. Used by the "reviewed" route's `{ clear: true }`
+    // body — the app's "show seen items again" wipes the whole store rather
+    // than deleting keys one at a time. Returns the store names it wrote.
+    async clear() {
+      for (const name of names) {
+        await writeMarks(pathFor(name), Object.create(null))
+      }
+      return [...names]
+    },
   }
 }

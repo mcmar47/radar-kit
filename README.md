@@ -105,6 +105,33 @@ so `writeMarks`, shelf's `writeStore`, and the digest run log all call
 HTML response for one-click links from the digest email. Those are
 genuinely different, not same-shaped-with-different-data.
 
+### The reviewed store (`radar-kit/reviewedRoute`)
+
+`createReviewedRoute({ reviewed, fields, keyOf })` adds a `POST /api/reviewed`
+route backed by its own single-store `createMarkStore` instance
+(`reviewed.json` in the repo root, non-exclusive, **separate** from
+interested/ignored). It is what the Continuum iOS app writes when you swipe
+past an item in its unified Inbox without starring or rejecting it —
+"don't show me this again", not a preference. It was local-only on the phone
+until a bundle-id change wiped the app container and took ~450 of those
+decisions with it; a store on the Pi makes it survive a reinstall and match
+a future iPad / Mac build, the same way the marks already do.
+
+**The agents never read `reviewed.json`.** `buildCalibrationBlock` still
+joins only `interested`/`ignored`, so this is not a training signal — it is
+purely a client-side "already triaged" set that happens to live on the Pi
+for durability.
+
+Three body shapes: `{ <fields>, reviewed: bool }` for one item,
+`{ items: [{ <fields> }, …], reviewed: bool }` for a batch ("mark all as
+seen"), and `{ clear: true }` to wipe the store ("show seen items again").
+`fields`/`keyOf` are the same pair `createOneClickMarkRoute` takes, so a
+reviewed key matches the key that radar's mark routes and `read_calibration`
+use.
+
+`createMarkStore()` gained a `clear()` method (empties every named store)
+for the `{ clear: true }` path.
+
 **Mark shape (2026-09).** A mark written through `createMarkStore().set`
 is now `{ at, via }` — an ISO timestamp and a short source string
 (`"email"` from the digest links, `"web"` from a page toggle, `"app"` from
@@ -276,6 +303,8 @@ from the script.
   failure that actually happened on the Pi and was fixed by hand in each
   repo separately; they are written to fail against the pre-fix behaviour,
   which is the only way to know the fix is really present.
+- `test/reviewed-route.test.js` — the `POST /api/reviewed` route: its three
+  body shapes, and the key-matches-the-mark-routes contract.
 - `test/scorecard.test.js` — the digest-footer scorecard and the run log.
 - `test/atomic-write.test.js` — the atomic-write / corrupt-store plumbing
   the interest-servers depend on.
@@ -289,4 +318,5 @@ consuming repo's own scheduled runs. The pure functions underneath them
 CI runs the suite on Node 20/22/24 on every push, and separately asserts
 that installing this package alone pulls exactly one package and that the
 non-plugin subpaths (`server`, `markStore`, `atomicWrite`, `seenStore`,
-`scorecard`, `gmail`, `health`, `oneClickMark`) import cleanly without it.
+`scorecard`, `gmail`, `health`, `oneClickMark`, `reviewedRoute`) import
+cleanly without it.

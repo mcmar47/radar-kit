@@ -35,9 +35,9 @@ more than once across the sibling repos, not by "these look similar."
 
 - **`index.js`** and `src/*.js` — the shared modules. `exports` in `package.json` defines several
   subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./gmail`, `./health`,
-  `./oneClickMark`).
+  `./oneClickMark`, `./reviewedRoute`).
   **Keep `markStore.js`, `interestServer.js`, `seenStore.js`, `calibration.js`, `scorecard.js`, `gmail.js`,
-  `healthRoute.js` and `atomicWrite.js` free of any
+  `healthRoute.js`, `oneClickMark.js`, `reviewedRoute.js` and `atomicWrite.js` free of any
   import that reaches `@opencode-ai/plugin`** — that peer dependency is optional specifically so a
   bare interest-server (no opencode involved at all) can `npm install radar-kit` and pull exactly
   one package. Reintroducing that import path defeats the reason this package is usable from
@@ -46,6 +46,11 @@ more than once across the sibling repos, not by "these look similar."
   `keyFields`, which must match what that repo's interest-server writes or the join silently finds
   nothing. See README's table for all four repos' `keyFields`. Every repo is now wired up;
   `job-radar` was the last, on 2026-09-02.
+- **`src/reviewedRoute.js`** — `POST /api/reviewed`, backed by its own single-store `createMarkStore`
+  instance (`reviewed.json`, non-exclusive, separate from interested/ignored). The Continuum iOS app's
+  "seen in the Inbox" set, given a home on the Pi so it survives a phone reinstall. **The agents never
+  read it** — `calibration.js` still joins only interested/ignored, so this is not a training signal.
+  Three body shapes: one item, a batch, and `{ clear: true }` (which uses `createMarkStore().clear()`).
 - **Consumers pin `@opencode-ai/plugin`** in their own gitignored `.opencode/package.json` to
   whatever opencode version that machine has installed (see README's "Using this in a repo").
   Reinstalling `radar-kit` without checking that pin against the Pi's actual `opencode --version`

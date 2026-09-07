@@ -239,6 +239,24 @@ test("clearing a mark never sweeps the other store", async () => {
   assert.deepEqual(Object.keys(await marks.read("ignored")), ["42"], "left alone")
 })
 
+test("clear() empties every named store", async () => {
+  const dir = await tempDir()
+  const marks = createMarkStore({
+    paths: {
+      interested: path.join(dir, "interested.json"),
+      ignored: path.join(dir, "ignored.json"),
+    },
+  })
+
+  await marks.set({ store: "interested", key: "42", value: true })
+  await marks.set({ store: "ignored", key: "7", value: true })
+
+  const cleared = await marks.clear()
+  assert.deepEqual(cleared.sort(), ["ignored", "interested"])
+  assert.deepEqual({ ...(await marks.read("interested")) }, {})
+  assert.deepEqual({ ...(await marks.read("ignored")) }, {})
+})
+
 test("without exclusive, both marks can coexist", async () => {
   const dir = await tempDir()
   const marks = createMarkStore({
