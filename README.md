@@ -68,16 +68,19 @@ but "this exact bug already needed fixing more than once."
   zero items when the section alone is worth sending. Dependency-free.
 - `buildMarkRateReport` / `createMarkRateSection` — the fleet mark-rate
   report (FUTURE-PROJECTS.md project 7's "one measurement worth taking
-  now"). For each radar and the fleet as a whole: what fraction of delivered
-  digest items (`logs/digest-runs.json` counts) got any star/reject decision
-  (`interested.json` + `ignored.json`, by mark timestamp — same rule as the
-  scorecard), over the last 7 days and cumulatively since 2026-08-30 as the
-  trend anchor. `buildMarkRateReport` is the pure compute+render half (no fs,
-  no plugin — the fleet-wide generalization of `scorecard.js`, whose
-  `countMarksSince` / `sumDeliveredSince` it reuses). `createMarkRateSection`
-  reads the sibling repos off disk and returns an `extraSection`-shaped
-  `{ read }` gated to once every ~7 days by a Pi-local
-  `logs/mark-rate.json`, so it rides one feed-radar digest a week.
+  now"). For each radar and the fleet as a whole: **of every item this radar
+  has delivered** (its seen store, keyed the same way `calibration.js`
+  keys it), what fraction carries a star/reject decision in
+  `interested.json` + `ignored.json` — plus how many new marks landed in the
+  last 7 days as the momentum figure. A whole-store cohort, not a trailing
+  window: a mark's timestamp is when someone *decided*, often weeks after
+  delivery, so "marks this week ÷ delivered this week" overshoots 100%; the
+  honest denominator is every delivered item, and tracked weekly the level
+  itself is the trend. `buildMarkRateReport` is the pure compute+render half
+  (no fs, no plugin); `createMarkRateSection` reads each radar's `seenFile` +
+  mark stores off disk and returns an `extraSection`-shaped `{ read }` gated
+  to once every ~7 days by a Pi-local `logs/mark-rate.json`, so it rides one
+  feed-radar digest a week.
 - `combineExtraSections([a, b, …])` — fold several `extraSection` `{ read }`
   objects into one. feed-radar carries two (Research Desk answer + weekly
   mark-rate); results concatenate in order, `onDelivered` fans out, all-null

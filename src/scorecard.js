@@ -26,8 +26,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * How many marks in `store` were made at or after `cutoffMs` (epoch ms).
  * A mark with no `at` (a legacy bare `true`) is never counted — it predates
  * timestamped marks by definition. Exported so the fleet mark-rate report
- * (markRate.js) counts marks by the exact same rule as this footer, over
- * both a trailing window and a since-anchor cutoff.
+ * (markRate.js) counts "new marks this week" by the exact same rule as this
+ * footer's trailing window.
  */
 export function countMarksSince(store, cutoffMs) {
   let n = 0
@@ -44,8 +44,7 @@ export function countMarksSince(store, cutoffMs) {
 /**
  * Sum the `count` field of run-log entries whose `at` is at or after
  * `cutoffMs`. The current run is not in the log yet when this is read, so
- * this is genuinely "delivered previously", not including today. Exported
- * for markRate.js — same reason as countMarksSince.
+ * this is genuinely "delivered previously", not including today.
  */
 export function sumDeliveredSince(runs, cutoffMs) {
   let total = 0

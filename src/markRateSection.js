@@ -1,6 +1,6 @@
 // The disk-reading half of the fleet mark-rate report (see markRate.js):
-// resolve each radar's logs/digest-runs.json + interested.json +
-// ignored.json, build the report, and hand it to feed-radar's digest as an
+// for each radar, read its seen store + interested.json + ignored.json,
+// build the report, and hand it to feed-radar's digest as an
 // `extraSection`-shaped { read }.
 //
 // Gated to once every ~7 days via a small Pi-local state file so it rides
@@ -8,15 +8,14 @@
 // last delivery, not day-of-week, so a feed-radar run that fails or is late
 // just slips the report by a day rather than skipping the week. The state
 // file is not load-bearing — losing it means at most one extra report on
-// the next run — so pi-bootstrap does not back it up (same call as
-// logs/digest-runs.json itself).
+// the next run — so pi-bootstrap does not back it up.
 //
 // Dependency-free beyond node:fs — never import @opencode-ai/plugin here,
 // same as researchDesk.js, so feed-tools.js can pull it from the barrel.
 
 import { readFile } from "node:fs/promises"
 import path from "node:path"
-import { buildMarkRateReport, INBOX_SHIPPED_ISO } from "./markRate.js"
+import { buildMarkRateReport } from "./markRate.js"
 import { readMarks } from "./markStore.js"
 import { writeFileAtomic } from "./atomicWrite.js"
 
@@ -37,16 +36,18 @@ async function readJson(filePath, fallback) {
 
 /**
  * @param {object} opts
- * @param {{name:string, dir:string}[]} opts.radarDirs  absolute repo dirs to read
- * @param {string} [opts.sinceIso]        the trend anchor
+ * @param {{name, dir, seenFile, keyFields}[]} opts.radarDirs
+ *   `dir` is an absolute repo dir; `seenFile` is relative to it (e.g.
+ *   "picks.json"); `keyFields` matches that radar's interest-server keyOf
+ *   (feed-radar: ["id"]; event-watch: ["title","date"]; release-radar:
+ *   ["watch","type","title"]; job-radar: ["company","title","link"]).
  * @param {number} [opts.minIntervalDays=7]
  * @param {string} [opts.stateFileName="logs/mark-rate.json"]  relative to the digest's own dir
- * @param {() => number} [opts.now]       injectable clock, epoch ms
+ * @param {() => number} [opts.now]  injectable clock, epoch ms
  * @returns {{read: (dir:string) => Promise<{id,html,text,onDelivered}|null>}}
  */
 export function createMarkRateSection({
   radarDirs = [],
-  sinceIso = INBOX_SHIPPED_ISO,
   minIntervalDays = 7,
   stateFileName = "logs/mark-rate.json",
   now = () => Date.now(),
@@ -66,16 +67,22 @@ export function createMarkRateSection({
       }
 
       const radars = []
-      for (const { name, dir: repoDir } of radarDirs) {
-        const [runs, interested, ignored] = await Promise.all([
-          readJson(path.join(repoDir, "logs/digest-runs.json"), []),
+      for (const { name, dir: repoDir, seenFile, keyFields } of radarDirs) {
+        const [seen, interested, ignored] = await Promise.all([
+          readJson(path.join(repoDir, seenFile), []),
           readMarks(path.join(repoDir, "interested.json")),
           readMarks(path.join(repoDir, "ignored.json")),
         ])
-        radars.push({ name, runs, interested, ignored })
+        radars.push({
+          name,
+          seen: Array.isArray(seen) ? seen : [],
+          keyFields,
+          interested,
+          ignored,
+        })
       }
 
-      const report = buildMarkRateReport({ radars, sinceIso, now: nowMs })
+      const report = buildMarkRateReport({ radars, now: nowMs })
 
       return {
         id: "mark-rate",

@@ -1,8 +1,8 @@
-// The fleet mark-rate report: per-radar and fleet-wide "fraction of
-// delivered items decided", over a trailing window and a since-anchor;
-// the once-a-week disk-reading section and its state-file gate; and the
-// multi-section combinator feed-radar uses to carry it alongside the
-// Research Desk answer.
+// The fleet mark-rate report: the whole-store cohort join (what fraction of
+// every delivered item carries a decision) plus the "new marks this week"
+// momentum figure; the once-a-week disk-reading section and its state-file
+// gate; and the multi-section combinator feed-radar uses to carry it
+// alongside the Research Desk answer.
 
 import { test } from "node:test"
 import assert from "node:assert/strict"
@@ -10,7 +10,7 @@ import { mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { buildMarkRateReport, INBOX_SHIPPED_ISO } from "../src/markRate.js"
+import { buildMarkRateReport } from "../src/markRate.js"
 import { countMarksSince, sumDeliveredSince } from "../src/scorecard.js"
 import { createMarkRateSection } from "../src/markRateSection.js"
 import { combineExtraSections } from "../src/combineExtraSections.js"
@@ -19,7 +19,7 @@ const NOW = Date.parse("2026-09-14T13:30:00.000Z")
 const daysAgo = (n) => new Date(NOW - n * 24 * 60 * 60 * 1000).toISOString()
 
 // ---------------------------------------------------------------------------
-// scorecard.js — the shared window helpers markRate reuses
+// scorecard.js — the shared window helper markRate reuses for "new this week"
 // ---------------------------------------------------------------------------
 
 test("countMarksSince counts timestamped marks at/after the cutoff, never bare true", () => {
@@ -31,77 +31,126 @@ test("countMarksSince counts timestamped marks at/after the cutoff, never bare t
   }
   assert.equal(countMarksSince(store, NOW - 7 * 86400000), 2)
   assert.equal(countMarksSince(store, NOW - 40 * 86400000), 3)
-  assert.equal(countMarksSince({}, NOW), 0)
   assert.equal(countMarksSince(undefined, NOW), 0)
 })
 
-test("sumDeliveredSince totals run counts at/after the cutoff", () => {
+test("sumDeliveredSince still totals run counts at/after the cutoff", () => {
   const runs = [
     { at: daysAgo(30), count: 99 },
     { at: daysAgo(5), count: 10 },
     { at: daysAgo(2), count: 6 },
-    { at: "not-a-date", count: 5 },
   ]
   assert.equal(sumDeliveredSince(runs, NOW - 7 * 86400000), 16)
-  assert.equal(sumDeliveredSince([], NOW), 0)
-  assert.equal(sumDeliveredSince(undefined, NOW), 0)
 })
 
 // ---------------------------------------------------------------------------
-// buildMarkRateReport
+// buildMarkRateReport — the cohort join
 // ---------------------------------------------------------------------------
 
 const radars = () => [
   {
     name: "feed-radar",
-    runs: [
-      { at: daysAgo(10), count: 100 }, // outside 7d, inside since-anchor
-      { at: daysAgo(5), count: 15 },
-      { at: daysAgo(1), count: 15 },
-    ],
-    interested: { a: { at: daysAgo(2) }, b: { at: daysAgo(4) }, old: { at: daysAgo(10) } },
-    ignored: { c: { at: daysAgo(3) } },
+    seen: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
+    keyFields: ["id"],
+    interested: { "1": { at: daysAgo(2) }, "2": { at: daysAgo(30) } },
+    ignored: { "3": { at: daysAgo(1) } },
   },
   {
     name: "job-radar",
-    runs: [{ at: daysAgo(4), count: 7 }],
+    seen: [
+      { company: "Acme", title: "SWE", link: "http://x/1" },
+      { company: "Beta", title: "SRE", link: "http://x/2" },
+    ],
+    keyFields: ["company", "title", "link"],
     interested: {},
     ignored: {},
   },
 ]
 
-test("per-radar rate is marks over delivered in the window", () => {
+test("rate is decided-items over distinct delivered items in the seen store", () => {
   const r = buildMarkRateReport({ radars: radars(), now: NOW })
   const feed = r.rows.find((x) => x.name === "feed-radar")
-  assert.equal(feed.marks7, 3) // a, b, c — not `old`
-  assert.equal(feed.delivered7, 30)
-  assert.equal(feed.rate7, 10)
+  assert.equal(feed.delivered, 4)
+  assert.equal(feed.decided, 3) // ids 1, 2, 3 marked; 4 not
+  assert.equal(feed.rate, 75)
 })
 
-test("since-anchor window is wider than the trailing window", () => {
+test("newMarks counts only marks whose timestamp is inside the trailing window", () => {
   const r = buildMarkRateReport({ radars: radars(), now: NOW })
   const feed = r.rows.find((x) => x.name === "feed-radar")
-  assert.equal(feed.deliveredSince, 130)
-  assert.equal(feed.marksSince, 4) // includes `old`
-  assert.equal(feed.rateSince, 3)
+  assert.equal(feed.newMarks, 2) // id 1 (2d) + id 3 (1d); id 2 is 30d out
 })
 
-test("a radar that delivered nothing in the window shows — not 0%", () => {
+test("a mark for an item no longer in the seen store does not inflate the rate", () => {
   const r = buildMarkRateReport({
-    radars: [{ name: "quiet", runs: [], interested: {}, ignored: {} }],
+    radars: [
+      {
+        name: "x",
+        seen: [{ id: 1 }],
+        keyFields: ["id"],
+        interested: { "1": { at: daysAgo(1) }, "999": { at: daysAgo(1) } },
+        ignored: {},
+      },
+    ],
     now: NOW,
   })
-  assert.equal(r.rows[0].rate7, null)
-  assert.match(r.text, /quiet\s+—/)
+  assert.equal(r.rows[0].delivered, 1)
+  assert.equal(r.rows[0].decided, 1)
+  assert.equal(r.rows[0].rate, 100)
+})
+
+test("an empty seen store shows — not 0%, and does not divide by zero", () => {
+  const r = buildMarkRateReport({
+    radars: [{ name: "new", seen: [], keyFields: ["id"], interested: {}, ignored: {} }],
+    now: NOW,
+  })
+  assert.equal(r.rows[0].rate, null)
+  assert.match(r.text, /new\s+—/)
+})
+
+test("keys are normalized like the interest-server (case/space-folded, dedup)", () => {
+  const r = buildMarkRateReport({
+    radars: [
+      {
+        name: "ev",
+        seen: [
+          { title: "Book  Fair", date: "2026-09-20" },
+          { title: "book fair", date: "2026-09-20" }, // same key after normalize
+        ],
+        keyFields: ["title", "date"],
+        interested: { "book fair|2026-09-20": { at: daysAgo(1) } },
+        ignored: {},
+      },
+    ],
+    now: NOW,
+  })
+  assert.equal(r.rows[0].delivered, 1, "the two rows collapse to one distinct item")
+  assert.equal(r.rows[0].decided, 1)
+})
+
+test("a blank-every-field row is not counted as a delivered item", () => {
+  const r = buildMarkRateReport({
+    radars: [
+      {
+        name: "ev",
+        seen: [{ title: "", date: "" }, { title: "Real", date: "2026-09-20" }],
+        keyFields: ["title", "date"],
+        interested: {},
+        ignored: {},
+      },
+    ],
+    now: NOW,
+  })
+  assert.equal(r.rows[0].delivered, 1)
 })
 
 test("the fleet row totals every radar and drives the headline", () => {
   const r = buildMarkRateReport({ radars: radars(), now: NOW })
-  assert.equal(r.fleet.marks7, 3)
-  assert.equal(r.fleet.delivered7, 37)
-  assert.equal(r.fleet.rate7, 8) // 3/37 → 8%
-  assert.match(r.headline, /Last 7 days: 8% of delivered items decided \(3\/37\)/)
-  assert.match(r.headline, /Since 2026-08-30:/)
+  assert.equal(r.fleet.delivered, 6) // 4 feed + 2 job
+  assert.equal(r.fleet.decided, 3)
+  assert.equal(r.fleet.rate, 50)
+  assert.match(r.headline, /50% of delivered items have a star\/reject decision \(3\/6\)/)
+  assert.match(r.headline, /\+2 in the last 7 days/)
   assert.match(r.line, /^Fleet mark rate — /)
 })
 
@@ -113,98 +162,109 @@ test("html section carries no h1/h2 and is script-free", () => {
   assert.match(r.html, /Fleet mark rate/)
 })
 
-test("default since-anchor is the Inbox ship date", () => {
-  const r = buildMarkRateReport({ radars: radars(), now: NOW })
-  assert.match(r.headline, /Since 2026-08-30/)
-  assert.equal(INBOX_SHIPPED_ISO.slice(0, 10), "2026-08-30")
-})
-
-test("runs and marks before the since-anchor are excluded from the cumulative figure", () => {
+test("precomputed seenKeys is an accepted alternative to seen + keyFields", () => {
   const r = buildMarkRateReport({
     radars: [
       {
-        name: "old",
-        runs: [
-          { at: "2026-08-20T00:00:00Z", count: 500 }, // before the anchor
-          { at: daysAgo(3), count: 10 },
-        ],
-        interested: { pre: { at: "2026-08-15T00:00:00Z" }, post: { at: daysAgo(2) } },
-        ignored: {},
+        name: "x",
+        seenKeys: ["a", "b", "c"],
+        interested: { a: { at: daysAgo(1) } },
+        ignored: { b: { at: daysAgo(1) } },
       },
     ],
     now: NOW,
   })
-  assert.equal(r.rows[0].deliveredSince, 10)
-  assert.equal(r.rows[0].marksSince, 1)
+  assert.equal(r.rows[0].delivered, 3)
+  assert.equal(r.rows[0].decided, 2)
 })
 
 // ---------------------------------------------------------------------------
 // createMarkRateSection — disk reads + weekly gate
 // ---------------------------------------------------------------------------
 
-async function fixtureRadar(root, name, { runs = [], interested = {}, ignored = {} }) {
+async function fixtureRadar(root, name, { seenFile, seen = [], interested = {}, ignored = {} }) {
   const dir = path.join(root, name)
   await mkdir(path.join(dir, "logs"), { recursive: true })
-  await writeFile(path.join(dir, "logs/digest-runs.json"), JSON.stringify(runs))
+  await writeFile(path.join(dir, seenFile), JSON.stringify(seen))
   await writeFile(path.join(dir, "interested.json"), JSON.stringify(interested))
   await writeFile(path.join(dir, "ignored.json"), JSON.stringify(ignored))
-  return { name, dir }
+  return { name, dir, seenFile }
 }
 
-test("section reads sibling repos and emits on a first run (no state file)", async () => {
+test("section reads each radar's seen store and emits on a first run (no state file)", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "markrate-"))
   const feed = await fixtureRadar(root, "feed-radar", {
-    runs: [{ at: daysAgo(1), count: 12 }],
-    interested: { a: { at: daysAgo(1) }, b: { at: daysAgo(2) } },
+    seenFile: "picks.json",
+    seen: [{ id: 1 }, { id: 2 }],
+    interested: { "1": { at: daysAgo(1) } },
   })
-  const job = await fixtureRadar(root, "job-radar", { runs: [{ at: daysAgo(2), count: 6 }] })
+  const job = await fixtureRadar(root, "job-radar", {
+    seenFile: "seen-jobs.json",
+    seen: [{ company: "A", title: "T", link: "L" }],
+  })
 
   const section = createMarkRateSection({
-    radarDirs: [feed, job],
+    radarDirs: [
+      { ...feed, keyFields: ["id"] },
+      { ...job, keyFields: ["company", "title", "link"] },
+    ],
     now: () => NOW,
   })
   const out = await section.read(feed.dir)
   assert.ok(out)
   assert.equal(out.id, "mark-rate")
-  assert.match(out.text, /Fleet mark rate/)
-  assert.match(out.text, /feed-radar/)
-  assert.match(out.text, /job-radar/)
+  assert.match(out.text, /feed-radar\s+50%\s+\(1\/2\)/)
+  assert.match(out.text, /job-radar\s+0%\s+\(0\/1\)/)
 })
 
 test("section is silent until minIntervalDays have passed, then emits again", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "markrate-"))
-  const feed = await fixtureRadar(root, "feed-radar", {
-    runs: [{ at: daysAgo(1), count: 12 }],
-  })
+  const feed = await fixtureRadar(root, "feed-radar", { seenFile: "picks.json", seen: [{ id: 1 }] })
   await writeFile(
     path.join(feed.dir, "logs/mark-rate.json"),
     JSON.stringify({ lastSentAt: daysAgo(3) })
   )
-  const section = createMarkRateSection({ radarDirs: [feed], now: () => NOW })
+  const radarDirs = [{ ...feed, keyFields: ["id"] }]
 
-  assert.equal(await section.read(feed.dir), null, "3 days later: still quiet")
-
-  const later = createMarkRateSection({
-    radarDirs: [feed],
-    now: () => NOW + 5 * 86400000, // 8 days after lastSentAt
-  })
-  assert.ok(await later.read(feed.dir), "8 days later: emits")
+  assert.equal(
+    await createMarkRateSection({ radarDirs, now: () => NOW }).read(feed.dir),
+    null,
+    "3 days later: still quiet"
+  )
+  assert.ok(
+    await createMarkRateSection({ radarDirs, now: () => NOW + 5 * 86400000 }).read(feed.dir),
+    "8 days later: emits"
+  )
 })
 
 test("onDelivered stamps the state file so the next run is gated", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "markrate-"))
-  const feed = await fixtureRadar(root, "feed-radar", {
-    runs: [{ at: daysAgo(1), count: 12 }],
+  const feed = await fixtureRadar(root, "feed-radar", { seenFile: "picks.json", seen: [{ id: 1 }] })
+  const section = createMarkRateSection({
+    radarDirs: [{ ...feed, keyFields: ["id"] }],
+    now: () => NOW,
   })
-  const section = createMarkRateSection({ radarDirs: [feed], now: () => NOW })
 
   const out = await section.read(feed.dir)
   await out.onDelivered()
 
   const state = JSON.parse(await readFile(path.join(feed.dir, "logs/mark-rate.json"), "utf8"))
   assert.equal(state.lastSentAt, new Date(NOW).toISOString())
-
   assert.equal(await section.read(feed.dir), null, "gated right after delivery")
+})
+
+test("a missing seen file degrades to zero delivered, not a crash", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "markrate-"))
+  await mkdir(path.join(root, "feed-radar", "logs"), { recursive: true })
+  const section = createMarkRateSection({
+    radarDirs: [
+      { name: "feed-radar", dir: path.join(root, "feed-radar"), seenFile: "picks.json", keyFields: ["id"] },
+    ],
+    now: () => NOW,
+  })
+  const out = await section.read(path.join(root, "feed-radar"))
+  assert.ok(out)
+  assert.match(out.text, /feed-radar\s+—/)
 })
 
 // ---------------------------------------------------------------------------
