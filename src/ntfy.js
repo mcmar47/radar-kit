@@ -56,7 +56,10 @@ const oneLine = (s) => String(s ?? "").replace(/[\r\n]+/g, " ").trim()
  * @param {string} [opts.clickUrl]  a continuum:// deep link for the tap target
  * @param {string} [opts.priority="default"]
  * @param {string[]} [opts.tags=["calendar"]]  ntfy tag / emoji shortcodes
- * @param {number} [opts.timeoutMs=8000]
+ * @param {number} [opts.timeoutMs=15000]  generous on purpose — this runs
+ *   post-send and best-effort, and the first outbound HTTPS call from a
+ *   fresh Node process on a Pi (DNS + TLS cold start) has been seen to take
+ *   several seconds
  */
 export async function sendNtfyPush({
   topic,
@@ -65,7 +68,7 @@ export async function sendNtfyPush({
   clickUrl,
   priority = "default",
   tags = ["calendar"],
-  timeoutMs = 8000,
+  timeoutMs = 15000,
 }) {
   if (!topic) return false
 
