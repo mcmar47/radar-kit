@@ -29,7 +29,9 @@ more than once across the sibling repos, not by "these look similar."
   disk-reading section + state-file gate, and `combineExtraSections`), and
   `test/ntfy.test.js` (the C4 push channel: topic-file read, the POST +
   header-injection guard, the "exactly one imminent item" filter, the
-  `continuum://` deep link). The
+  `continuum://` deep link), and
+  `test/continuum-push.test.js` (`sendContinuumPush`'s best-effort POST +
+  header-injection guard, and `buildSummary`'s per-radar wording). The
   interest-server tests are written to fail against the pre-fix
   behavior of real bugs found on the Pi, so they double as regression tests for incidents, not
   just spec coverage.
@@ -40,16 +42,21 @@ more than once across the sibling repos, not by "these look similar."
 ## Architecture
 
 - **`index.js`** and `src/*.js` — the shared modules. `exports` in `package.json` defines several
-  subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./gmail`, `./ntfy`, `./health`,
+  subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./gmail`, `./ntfy`, `./continuumPush`, `./health`,
   `./oneClickMark`, `./reviewedRoute`).
   **Keep `markStore.js`, `interestServer.js`, `seenStore.js`, `calibration.js`, `scorecard.js`, `gmail.js`,
-  `ntfy.js`, `healthRoute.js`, `oneClickMark.js`, `reviewedRoute.js` and `atomicWrite.js` free of any
+  `ntfy.js`, `continuumPush.js`, `healthRoute.js`, `oneClickMark.js`, `reviewedRoute.js` and `atomicWrite.js` free of any
   import that reaches `@opencode-ai/plugin`** — that peer dependency is optional specifically so a
   bare interest-server (no opencode involved at all) can `npm install radar-kit` and pull exactly
   one package. Reintroducing that import path defeats the reason this package is usable from
   `server/package.json` in the first place. (`markRate.js`, `markRateSection.js`,
   `combineExtraSections.js` and `highlight.js` are also plugin-free but reached only through the
   barrel, so they carry no subpath obligation — the CI check enumerates the subpaths above.)
+  `continuumPush.js` (`./continuumPush`) is the sibling of `ntfy.js`: the second
+  in-app-notification channel, a best-effort POST to the `continuum-push` service on the Pi
+  (127.0.0.1:8031) with one per-radar summary banner per digest run. Wired into
+  `createSendDigestEmailTool` via its `continuumPush: { noun, ... }` option, alongside the
+  existing `push`/pickHighlight ntfy channel.
 - **`src/calibration.js`** joins a repo's star/reject mark file back to its records file by
   `keyFields`, which must match what that repo's interest-server writes or the join silently finds
   nothing. See README's table for all four repos' `keyFields`. Every repo is now wired up;

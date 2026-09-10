@@ -8,6 +8,7 @@ import { writeFileAtomic } from "./atomicWrite.js"
 import { buildScorecard, appendRun, latestRunCost } from "./scorecard.js"
 import { sendGmailMessage } from "./gmail.js"
 import { readPushTopic, sendNtfyPush } from "./ntfy.js"
+import { sendContinuumPush, buildSummary } from "./continuumPush.js"
 
 // A `scorecard` block, when passed to the render/send tools, turns on the
 // digest footer line. Shape:
@@ -138,6 +139,12 @@ export function createValidateDigestTool({ digestConfig, argsShape, description 
 // best-effort: a missing topic, a null highlight, or a failed POST all leave
 // the digest result untouched. Only event-watch and release-radar pass this
 // — see NEW-IDEAS.md C4 and each plugin's pickHighlight.
+//
+// `continuumPush`, when passed, is `{ noun, titleField?, deepLink? }` — a
+// separate channel from `push`: one per-radar summary banner ("5 new feed
+// picks") to the Continuum iOS app via radar-kit/continuumPush, so the
+// phone doesn't wait on its throttled BGTaskScheduler wake-up. All four
+// Inbox-feeding radars pass it. See maybeContinuumSummary + buildSummary.
 async function maybePush(push, items) {
   if (!push?.pickHighlight || !Array.isArray(items) || items.length === 0) return
   try {
@@ -151,6 +158,25 @@ async function maybePush(push, items) {
   }
 }
 
+// A per-radar summary push to the Continuum iOS app: one banner titled with
+// the count of items this digest run sent, so the phone learns about new
+// undecided picks the moment they're chosen rather than on the app's next
+// throttled background wake-up. `continuumPush`, when a repo passes it, is
+// `{ noun, titleField?, deepLink? }` — see buildSummary. Strictly post-send
+// and best-effort (continuum-push is Tailscale-internal and may not be
+// running / may have no devices registered), exactly like maybePush above.
+// Distinct from `push`/pickHighlight, which stays the near-empty
+// single-time-critical-row ntfy channel.
+async function maybeContinuumSummary(continuumPush, items) {
+  if (!continuumPush || !Array.isArray(items) || items.length === 0) return
+  try {
+    const summary = buildSummary(items, continuumPush)
+    if (summary) await sendContinuumPush(summary)
+  } catch (err) {
+    console.error("send_digest_email: continuum summary push failed:", err)
+  }
+}
+
 export function createSendDigestEmailTool({
   digestConfig,
   stagingFileName,
@@ -160,6 +186,7 @@ export function createSendDigestEmailTool({
   scorecard,
   extraSection,
   push,
+  continuumPush,
 }) {
   return tool({
     description,
@@ -215,6 +242,10 @@ export function createSendDigestEmailTool({
       // One push for the single time-critical row, if this repo asked for
       // one and exactly one item qualifies. Strictly post-send, best-effort.
       await maybePush(push, items)
+
+      // One per-radar summary push to the Continuum app, if this repo asked
+      // for one. Also strictly post-send and best-effort.
+      await maybeContinuumSummary(continuumPush, items)
 
       // Record this run's size so future footers can total "delivered last
       // N days". Only after a confirmed send, and never fatal: a failure to

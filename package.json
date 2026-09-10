@@ -1,6 +1,6 @@
 {
   "name": "radar-kit",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -13,6 +13,7 @@
     "./scorecard": "./src/scorecard.js",
     "./gmail": "./src/gmail.js",
     "./ntfy": "./src/ntfy.js",
+    "./continuumPush": "./src/continuumPush.js",
     "./health": "./src/healthRoute.js",
     "./oneClickMark": "./src/oneClickMark.js",
     "./reviewedRoute": "./src/reviewedRoute.js"

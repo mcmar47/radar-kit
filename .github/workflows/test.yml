@@ -70,6 +70,7 @@ jobs:
                            'radar-kit/scorecard': 'buildScorecard',
                            'radar-kit/gmail': 'sendGmailMessage',
                            'radar-kit/ntfy': 'sendNtfyPush',
+                           'radar-kit/continuumPush': 'sendContinuumPush',
                            'radar-kit/health': 'createHealthRoute',
                            'radar-kit/oneClickMark': 'createOneClickMarkRoute',
                            'radar-kit/reviewedRoute': 'createReviewedRoute' }

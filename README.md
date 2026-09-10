@@ -46,6 +46,18 @@ but "this exact bug already needed fixing more than once."
   `soleImminentItem` (in `highlight.js`) is the strict "exactly one item is
   within N days" filter both use; `continuumItemLink` builds the
   `continuum://item?origin=…&key=…` deep link the notification taps through.
+- `sendContinuumPush` / `buildSummary` (`radar-kit/continuumPush`,
+  dependency-free) — the **second** in-app-notification channel, sibling of
+  `radar-kit/ntfy`. A best-effort POST to the `continuum-push` service on the
+  Pi (`127.0.0.1:8031`), which sends it through APNs to the Continuum iOS
+  app. `send_digest_email` takes an optional `continuumPush: { noun,
+  titleField?, deepLink? }`; after a confirmed send it posts **one per-radar
+  summary banner** ("5 new feed picks", body = the lead titles), so the
+  phone doesn't wait on its throttled `BGTaskScheduler` wake-up. Distinct
+  from `push`/`pickHighlight` above — that stays the near-empty
+  single-imminent-row ntfy channel. All four Inbox-feeding radars pass it.
+  No secret to read: `/api/push` isn't nginx-proxied, so reaching it means
+  you're already on the Pi.
 - `escapeHtml`.
 - `createFilterFutureEventsTool` — event-watch's future-date filter, kept
   here since it's already fully generic (just needs `{ title, date }`) and
@@ -343,6 +355,9 @@ from the script.
 - `test/ntfy.test.js` — the C4 push channel: the topic-file read, the POST
   and its header-injection guard, the "exactly one imminent item" filter,
   and the `continuum://` deep link.
+- `test/continuum-push.test.js` — the Continuum in-app push channel:
+  `sendContinuumPush`'s best-effort POST + header-injection guard, and
+  `buildSummary`'s per-radar wording.
 - `test/atomic-write.test.js` — the atomic-write / corrupt-store plumbing
   the interest-servers depend on.
 
@@ -355,5 +370,5 @@ consuming repo's own scheduled runs. The pure functions underneath them
 CI runs the suite on Node 20/22/24 on every push, and separately asserts
 that installing this package alone pulls exactly one package and that the
 non-plugin subpaths (`server`, `markStore`, `atomicWrite`, `seenStore`,
-`scorecard`, `gmail`, `ntfy`, `health`, `oneClickMark`, `reviewedRoute`)
-import cleanly without it.
+`scorecard`, `gmail`, `ntfy`, `continuumPush`, `health`, `oneClickMark`,
+`reviewedRoute`) import cleanly without it.
