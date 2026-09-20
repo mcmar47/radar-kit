@@ -68,6 +68,7 @@ jobs:
                            'radar-kit/atomicWrite': 'writeFileAtomic',
                            'radar-kit/seenStore': 'makeKeyFn',
                            'radar-kit/scorecard': 'buildScorecard',
+                           'radar-kit/qualityLab': 'buildQualityLabReport',
                            'radar-kit/gmail': 'sendGmailMessage',
                            'radar-kit/ntfy': 'sendNtfyPush',
                            'radar-kit/continuumPush': 'sendContinuumPush',

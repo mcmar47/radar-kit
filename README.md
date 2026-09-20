@@ -295,6 +295,34 @@ so a digest footer shows the **previous** run's cost — `· $0.03 last run`.
 A run whose delta comes back `<= 0` (sampled before the total caught up)
 records nothing rather than a misleading `$0.00`.
 
+## Radar Quality Lab
+
+`src/qualityLab.js` (`buildRadarQuality`, `buildQualityLabReport`) is the
+v1 reader half of FUTURE-PROJECTS.md project 7 — the analysis that was
+gated on ~50 timestamped marks landing in a trailing 30 days (cleared
+2026-09; the interim measurement, `markRate.js`'s fleet mark rate, still
+rides feed-radar's digest weekly and is not replaced by this). Unlike
+every other module above, nothing wires this into a digest — a standalone
+script (`pi-ops`) reads each radar's seen-store and mark files straight
+off disk and writes a static HTML report page. It is a subpath export
+(`radar-kit/qualityLab`) rather than only reachable through the barrel, for
+the same reason `scorecard.js` is: a plain script with no
+`@opencode-ai/plugin` installed needs to import it directly.
+
+Per radar it reports delivered/starred/rejected/unmarked counts with their
+denominator, duplicate keys (records that collapsed onto the same key —
+the same join `calibration.js` does), stale unmarked items (an unmarked
+record whose date field is more than `staleDays` in the past — works for a
+delivery date, a release date, or an event date without a mode flag, since
+a future date never exceeds the threshold), and an optional per-group
+breakdown (e.g. feed-radar by `source`, event-watch by `category`) with any
+group below `minGroupDenominator` decided marks suppressed rather than
+shown as a rate over a single-digit sample.
+
+**Deliberately left out of v1:** time-to-mark (only feed-radar's records
+carry a delivery timestamp) and auto-drafted prompt/profile suggestions —
+this module measures, it does not recommend.
+
 ## Using this in a repo
 
 `.opencode/package.json` (hand-maintained and gitignored on purpose, since

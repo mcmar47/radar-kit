@@ -31,7 +31,10 @@ more than once across the sibling repos, not by "these look similar."
   header-injection guard, the "exactly one imminent item" filter, the
   `continuum://` deep link), and
   `test/continuum-push.test.js` (`sendContinuumPush`'s best-effort POST +
-  header-injection guard, and `buildSummary`'s per-radar wording). The
+  header-injection guard, and `buildSummary`'s per-radar wording), and
+  `test/quality-lab.test.js` (`buildRadarQuality`'s duplicate-key and
+  staleness detection, per-group suppression below the minimum denominator,
+  and `buildQualityLabReport`'s fleet rollup). The
   interest-server tests are written to fail against the pre-fix
   behavior of real bugs found on the Pi, so they double as regression tests for incidents, not
   just spec coverage.
@@ -42,9 +45,9 @@ more than once across the sibling repos, not by "these look similar."
 ## Architecture
 
 - **`index.js`** and `src/*.js` — the shared modules. `exports` in `package.json` defines several
-  subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./gmail`, `./ntfy`, `./continuumPush`, `./health`,
+  subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./qualityLab`, `./gmail`, `./ntfy`, `./continuumPush`, `./health`,
   `./oneClickMark`, `./reviewedRoute`).
-  **Keep `markStore.js`, `interestServer.js`, `seenStore.js`, `calibration.js`, `scorecard.js`, `gmail.js`,
+  **Keep `markStore.js`, `interestServer.js`, `seenStore.js`, `calibration.js`, `scorecard.js`, `qualityLab.js`, `gmail.js`,
   `ntfy.js`, `continuumPush.js`, `healthRoute.js`, `oneClickMark.js`, `reviewedRoute.js` and `atomicWrite.js` free of any
   import that reaches `@opencode-ai/plugin`** — that peer dependency is optional specifically so a
   bare interest-server (no opencode involved at all) can `npm install radar-kit` and pull exactly
