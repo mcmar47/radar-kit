@@ -115,6 +115,7 @@ export function buildRadarQuality({
         total: g.total,
         starred: g.starred,
         rejected: g.rejected,
+        unmarked: g.total - g.starred - g.rejected,
         decided,
         rate: rate(g.starred, decided),
         suppressed: decided < minGroupDenominator,
@@ -177,32 +178,62 @@ export function buildQualityLabReport({ radars = [], now = Date.now() } = {}) {
   }
 }
 
+// A thin 100%-stacked composition bar: starred (good) / rejected (danger) /
+// unmarked (neutral track), by flex-grow rather than computed percentages
+// so rounding can never leave a sliver of unaccounted width. Bar *length*
+// (vs. the track) additionally encodes this group's volume relative to the
+// busiest group in the same radar, so a glance shows both "how much" and
+// "how it went" — a zero-count segment is omitted outright rather than
+// rendered as a zero-width flex item.
+function renderBar(g, maxTotal) {
+  const seg = (n, cls) => (n > 0 ? `<span class="seg ${cls}" style="flex-grow:${n}"></span>` : "")
+  const widthPct = Math.max(8, Math.round((g.total / maxTotal) * 100))
+  const title = `${g.starred} starred · ${g.rejected} rejected · ${g.unmarked} unmarked (${g.total} sent)`
+  return (
+    `<div class="bar-track" style="width:${widthPct}%" title="${escapeHtml(title)}">` +
+    seg(g.starred, "star") +
+    seg(g.rejected, "reject") +
+    seg(g.unmarked, "unmarked") +
+    `</div>`
+  )
+}
+
 function renderRadarSection(r) {
-  const groupRows = r.groups.length
-    ? r.groups
-        .map((g) => {
-          const rateCell = g.suppressed
-            ? `<span title="fewer than the minimum decided items — not enough evidence">—</span>`
-            : showRate(g.rate)
-          return (
-            `<tr>` +
-            `<td>${escapeHtml(g.label)}</td>` +
-            `<td style="text-align:right">${g.total}</td>` +
-            `<td style="text-align:right">${g.starred}</td>` +
-            `<td style="text-align:right">${g.rejected}</td>` +
-            `<td style="text-align:right">${rateCell} <span class="denom">(${g.decided})</span></td>` +
-            `</tr>`
-          )
-        })
-        .join("")
+  // A group with zero decided items has nothing to say yet — rendering a
+  // row of dashes for it is the "horoscope" the spec warns against, and on
+  // a long-tail radar (feed-radar's 50+ sources) it can be most of the
+  // table. Collapse those into one line instead of one row each.
+  const evidenced = r.groups.filter((g) => g.decided > 0)
+  const noEvidence = r.groups.filter((g) => g.decided === 0)
+  const maxTotal = Math.max(1, ...evidenced.map((g) => g.total))
+
+  const groupRows = evidenced
+    .map((g) => {
+      const rateCell = g.suppressed
+        ? `<span title="fewer than the minimum decided items — not enough evidence">—</span>`
+        : showRate(g.rate)
+      return (
+        `<tr class="${g.suppressed ? "thin-evidence" : ""}">` +
+        `<td class="group-label" title="${escapeHtml(g.label)}">${escapeHtml(g.label)}</td>` +
+        `<td class="bar-cell">${renderBar(g, maxTotal)}</td>` +
+        `<td class="rate-cell">${rateCell} <span class="denom">(${g.decided})</span></td>` +
+        `</tr>`
+      )
+    })
+    .join("")
+
+  const noEvidenceLine = noEvidence.length
+    ? `<p class="muted small">+${noEvidence.length} more ${escapeHtml((r.groupLabel ?? "group").toLowerCase())}${noEvidence.length === 1 ? "" : "s"} ` +
+      `with no star/reject decisions yet (${noEvidence.reduce((n, g) => n + g.total, 0)} sent), omitted.</p>`
     : ""
 
   const groupTable = r.groups.length
     ? `<table>` +
-      `<tr><th>${escapeHtml(r.groupLabel ?? "Group")}</th><th>Sent</th><th>★</th><th>✕</th><th>Star rate</th></tr>` +
+      `<tr><th>${escapeHtml(r.groupLabel ?? "Group")}</th><th>Starred · rejected · unmarked</th><th>Star rate</th></tr>` +
       groupRows +
-      `</table>`
-    : `<p class="muted">No breakdown field configured for this radar.</p>`
+      `</table>` +
+      noEvidenceLine
+    : `<p class="muted small">No breakdown field configured for this radar.</p>`
 
   const flags = []
   if (r.duplicateItems > 0) {
@@ -212,45 +243,120 @@ function renderRadarSection(r) {
     flags.push(`${r.staleUnmarked} stale unmarked`)
   }
   const flagsLine = flags.length
-    ? `<p class="flag">${flags.map(escapeHtml).join(" · ")}</p>`
+    ? `<p class="pills">${flags.map((f) => `<span class="pill warn">${escapeHtml(f)}</span>`).join(" ")}</p>`
     : ""
 
   return (
-    `<section>` +
+    `<section class="card">` +
     `<h2>${escapeHtml(r.name)}</h2>` +
-    `<p class="stats">${r.delivered} delivered · ${r.starred} starred · ${r.rejected} rejected · ` +
-    `${r.unmarked} unmarked · mark rate ${showRate(r.markRate)} <span class="denom">(${r.starred + r.rejected}/${r.delivered})</span></p>` +
+    `<p class="stats">${r.delivered} delivered · <span class="good">${r.starred} starred</span> · ` +
+    `<span class="danger">${r.rejected} rejected</span> · ${r.unmarked} unmarked · mark rate ` +
+    `<strong>${showRate(r.markRate)}</strong> <span class="denom">(${r.starred + r.rejected}/${r.delivered})</span></p>` +
     flagsLine +
     groupTable +
     `</section>`
   )
 }
 
+function statTile(value, label, denom) {
+  return (
+    `<div class="stat">` +
+    `<div class="stat-value">${escapeHtml(String(value))}</div>` +
+    `<div class="stat-label">${escapeHtml(label)}${denom ? ` <span class="denom">${escapeHtml(denom)}</span>` : ""}</div>` +
+    `</div>`
+  )
+}
+
 function renderHtml(radars, fleet, now) {
   const sections = radars.map(renderRadarSection).join("\n")
   const generated = new Date(now).toISOString().slice(0, 16).replace("T", " ") + " UTC"
+  const fleetFlags = fleet.duplicateItems + fleet.staleUnmarked
+  const flagTile = fleetFlags > 0 ? statTile(fleetFlags, "Flagged", "duplicates + stale") : ""
+
   return `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Radar Quality Lab</title>
 <style>
-  body { font-family: -apple-system, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 16px; color: #223; }
-  h1 { font-size: 20px; }
-  h2 { font-size: 16px; margin-top: 40px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
-  .meta { color: #889; font-size: 13px; }
-  .stats { font-size: 14px; }
-  .muted { color: #889; font-size: 13px; }
-  .flag { color: #a55; font-size: 13px; }
-  .denom { color: #889; }
-  table { border-collapse: collapse; font-size: 13px; margin-top: 8px; width: 100%; }
-  th, td { padding: 3px 10px 3px 0; text-align: left; }
-  th { color: #667; font-weight: 600; border-bottom: 1px solid #ddd; }
+  :root {
+    --bg: #f7f7f8; --panel: #fff; --border: #e2e2e6;
+    --text: #1c1c1f; --muted: #85858c; --track: #ececed;
+    --good: #1a7f37; --danger: #b3261e; --warn: #a2760a; --warn-bg: #fff4d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #202027; --border: #33333c;
+      --text: #e9e9ec; --muted: #9a9aa2; --track: #2a2a30;
+      --good: #6fd08c; --danger: #f2867d; --warn: #e6c34d; --warn-bg: #2c2717;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 900px; margin: 0 auto; padding: 32px 16px 64px;
+    background: var(--bg); color: var(--text);
+  }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .meta { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+  .stats-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 28px; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 16px; min-width: 130px; flex: 1 1 130px;
+  }
+  .stat-value { font-size: 22px; font-weight: 600; line-height: 1.2; }
+  .stat-label { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 16px;
+  }
+  .stats { font-size: 13px; margin: 0 0 8px; }
+  .good { color: var(--good); font-weight: 600; }
+  .danger { color: var(--danger); font-weight: 600; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .denom { color: var(--muted); font-weight: 400; }
+  .pills { margin: 0 0 10px; }
+  .pill {
+    display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 999px;
+    background: var(--warn-bg); color: var(--warn); margin-right: 6px;
+  }
+  table { border-collapse: collapse; font-size: 13px; width: 100%; table-layout: fixed; }
+  th, td { padding: 4px 8px 4px 0; text-align: left; vertical-align: middle; }
+  th {
+    color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .03em; border-bottom: 1px solid var(--border); padding-bottom: 6px;
+  }
+  th:first-child, td.group-label { width: 34%; }
+  th:last-child, td.rate-cell { width: 90px; text-align: right; white-space: nowrap; }
+  td.group-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.bar-cell { padding-top: 6px; padding-bottom: 6px; }
+  .bar-track {
+    display: flex; gap: 2px; height: 14px; border-radius: 4px; overflow: hidden;
+    background: var(--track);
+  }
+  tr.thin-evidence .bar-track { opacity: .5; }
+  .seg { display: block; height: 100%; }
+  .seg.star { background: var(--good); }
+  .seg.reject { background: var(--danger); }
+  .seg.unmarked { background: var(--track); }
+  @media (max-width: 480px) {
+    th:first-child, td.group-label { width: 30%; }
+    th:last-child, td.rate-cell { width: 70px; }
+  }
 </style>
 </head>
 <body>
 <h1>Radar Quality Lab</h1>
-<p class="meta">Generated ${escapeHtml(generated)} · fleet: ${fleet.delivered} delivered, mark rate ${showRate(fleet.markRate)} <span class="denom">(${fleet.starred + fleet.rejected}/${fleet.delivered})</span>, star rate ${showRate(fleet.starRate)} among decided items</p>
+<p class="meta">Generated ${escapeHtml(generated)}</p>
+<div class="stats-row">
+${statTile(fleet.delivered, "Delivered")}
+${statTile(showRate(fleet.markRate), "Mark rate", `${fleet.starred + fleet.rejected}/${fleet.delivered}`)}
+${statTile(showRate(fleet.starRate), "Star rate", `${fleet.starred}/${fleet.starred + fleet.rejected}`)}
+${flagTile}
+</div>
 ${sections}
 </body>
 </html>

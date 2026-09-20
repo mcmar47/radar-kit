@@ -129,6 +129,7 @@ test("per-group breakdown reports a rate with its denominator, and suppresses th
   assert.equal(a.total, 6)
   assert.equal(a.decided, 5)
   assert.equal(a.rate, 60) // 3 starred / 5 decided
+  assert.equal(a.unmarked, 1)
   assert.equal(a.suppressed, false)
   assert.equal(b.decided, 1)
   assert.equal(b.suppressed, true)
@@ -186,6 +187,30 @@ test("buildQualityLabReport rolls up fleet totals and renders one HTML page", ()
   assert.match(report.html, /job-radar/)
   // A radar with no groupField configured says so instead of an empty table.
   assert.match(report.html, /No breakdown field configured/)
+})
+
+test("a group with zero decided marks collapses into one summary line, not a dashed row", () => {
+  const report = buildQualityLabReport({
+    radars: [
+      {
+        name: "feed-radar",
+        records: [
+          { id: 1, source: "A" },
+          { id: 2, source: "A" },
+          { id: 3, source: "B" }, // no marks at all
+        ],
+        keyFields: [{ field: "id", exact: true }],
+        interested: { "1": { at: daysAgo(1) } },
+        ignored: { "2": { at: daysAgo(1) } },
+        groupField: "source",
+        groupLabel: "Source",
+      },
+    ],
+    now: NOW,
+  })
+  assert.match(report.html, />A<\/td>/)
+  assert.doesNotMatch(report.html, />B<\/td>/)
+  assert.match(report.html, /\+1 more source with no star\/reject decisions yet \(1 sent\), omitted\./)
 })
 
 test("buildQualityLabReport accepts pre-built buildRadarQuality results too", () => {
