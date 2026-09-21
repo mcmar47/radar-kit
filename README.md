@@ -295,6 +295,11 @@ so a digest footer shows the **previous** run's cost — `· $0.03 last run`.
 A run whose delta comes back `<= 0` (sampled before the total caught up)
 records nothing rather than a misleading `$0.00`.
 
+Which key: `run-cost.js` prefers `$OPENROUTER_API_KEY` from the caller's
+environment when set, falling back to opencode's own auth store otherwise.
+The opencode digest wrappers never export that variable, so this only
+matters for a caller with its own key — see "Fleet Cost Lab" below.
+
 ## Radar Quality Lab
 
 `src/qualityLab.js` (`buildRadarQuality`, `buildQualityLabReport`) is the
@@ -322,6 +327,35 @@ shown as a rate over a single-digit sample.
 **Deliberately left out of v1:** time-to-mark (only feed-radar's records
 carry a delivery timestamp) and auto-drafted prompt/profile suggestions —
 this module measures, it does not recommend.
+
+## Fleet Cost Lab
+
+`src/costLab.js` (`buildAgentCost`, `buildCostLabReport`) sums and charts
+the per-run `costUsd` the Scorecard section above already logs into every
+agent's run log — that figure was only ever shown as a single "last run"
+digest-footer line before this existed, never summed across a window or
+across agents. Same posture as Radar Quality Lab: a standalone script
+(`pi-ops/cost-lab`) reads every agent's run-log file straight off disk and
+writes a static HTML report page, and it's a subpath export
+(`radar-kit/costLab`) for the same "no `@opencode-ai/plugin` needed" reason.
+
+Scoped deliberately to *scheduled* spend — a run-log entry only exists
+because a scheduled wrapper called `run-cost.js`, so an ad-hoc `opencode`
+or manual API session never contributes one. Two of the eight agents this
+covers don't go through opencode at all: `shelf`'s `recognize-photos.js`
+and `resale-radar`'s `recognize-spines.js` call OpenRouter directly with
+their own key (from `~/.config/{shelf,resale-radar}/env`), which is why
+`run-cost.js` needed the `$OPENROUTER_API_KEY` env-var preference noted
+above — reading opencode's idle key for those two would have measured the
+wrong account.
+
+Per agent: total logged / last-7d / last-30d spend, runs counted, avg
+$/run, and the last run's cost + date + model. Fleet-wide: a stacked bar
+chart of weekly spend by agent over a trailing window (rolling 7-day
+buckets ending "now", not calendar weeks — the fleet's cadences run daily
+to monthly to on-demand, so calendar alignment buys nothing). Categorical
+color assignment is by agent, in a fixed order, per the dataviz skill's
+adjacent-pair-validated 8-slot palette.
 
 ## Using this in a repo
 

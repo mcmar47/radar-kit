@@ -69,6 +69,7 @@ jobs:
                            'radar-kit/seenStore': 'makeKeyFn',
                            'radar-kit/scorecard': 'buildScorecard',
                            'radar-kit/qualityLab': 'buildQualityLabReport',
+                           'radar-kit/costLab': 'buildCostLabReport',
                            'radar-kit/gmail': 'sendGmailMessage',
                            'radar-kit/ntfy': 'sendNtfyPush',
                            'radar-kit/continuumPush': 'sendContinuumPush',

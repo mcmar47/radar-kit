@@ -55,6 +55,23 @@ export function sumDeliveredSince(runs, cutoffMs) {
   return total
 }
 
+/**
+ * Sum the `costUsd` field of run-log entries whose `at` is at or after
+ * `cutoffMs`. Same shape as sumDeliveredSince, for Cost Lab (costLab.js) —
+ * a run with no measurable cost (recordRunCost skipped it) contributes 0,
+ * not undefined, so a fleet total is never NaN.
+ */
+export function sumCostSince(runs, cutoffMs) {
+  let total = 0
+  for (const run of runs || []) {
+    const t = Date.parse(run?.at ?? "")
+    if (!Number.isNaN(t) && t >= cutoffMs && typeof run.costUsd === "number") {
+      total += run.costUsd
+    }
+  }
+  return total
+}
+
 // How many marks in `store` were made within the last `days` days.
 function countWithin(store, days, now) {
   return countMarksSince(store, now - days * DAY_MS)

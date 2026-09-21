@@ -5,7 +5,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { buildScorecard, appendRun, recordRunCost, latestRunCost } from "../src/scorecard.js"
+import { buildScorecard, appendRun, recordRunCost, latestRunCost, sumCostSince } from "../src/scorecard.js"
 import { renderDigestContent } from "../src/digest.js"
 
 const NOW = Date.parse("2026-09-10T12:00:00.000Z")
@@ -120,6 +120,21 @@ test("latestRunCost returns the newest logged cost, or undefined", () => {
     ]),
     0.05
   )
+})
+
+test("sumCostSince sums only costUsd entries inside the window, skipping uncosted runs", () => {
+  const runs = [
+    { at: daysAgo(30), count: 5, costUsd: 1 }, // outside
+    { at: daysAgo(5), count: 10, costUsd: 0.1 },
+    { at: daysAgo(2), count: 0 }, // uncosted run, contributes 0
+    { at: daysAgo(1), count: 6, costUsd: 0.05 },
+  ]
+  assert.equal(Math.round(sumCostSince(runs, Date.parse(daysAgo(7))) * 100) / 100, 0.15)
+})
+
+test("sumCostSince returns 0 for an empty or missing log", () => {
+  assert.equal(sumCostSince([], NOW), 0)
+  assert.equal(sumCostSince(undefined, NOW), 0)
 })
 
 test("the html footer is safe to concatenate and adds no heading", () => {

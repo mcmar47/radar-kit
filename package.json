@@ -12,6 +12,7 @@
     "./calibration": "./src/calibration.js",
     "./scorecard": "./src/scorecard.js",
     "./qualityLab": "./src/qualityLab.js",
+    "./costLab": "./src/costLab.js",
     "./gmail": "./src/gmail.js",
     "./ntfy": "./src/ntfy.js",
     "./continuumPush": "./src/continuumPush.js",

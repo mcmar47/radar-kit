@@ -11,6 +11,16 @@
 //       the run log via recordRunCost(). <runsFile> is the same
 //       logs/digest-runs.json send_digest_email appends to.
 //
+// Which key: prefers $OPENROUTER_API_KEY when the caller's environment sets
+// one, falling back to opencode's own auth store otherwise. The opencode
+// digest wrappers never export OPENROUTER_API_KEY, so this is a no-op for
+// them; shelf's and resale-radar's vision scripts (recognize-photos.js /
+// recognize-spines.js) call OpenRouter directly with their own key from
+// ~/.config/{shelf,resale-radar}/env, a DIFFERENT key from opencode's — for
+// those, reading opencode's idle key would measure the wrong account
+// entirely. See openrouterCost.js's header comment for why the delta trick
+// needs "nothing else spends on this key during the run" to hold.
+//
 // Every failure path exits 0 with a message on stderr: a cost figure is a
 // nice-to-have on the footer and must never turn a delivered digest into a
 // failed run. The wrapper also guards the call with `|| true`.
@@ -21,10 +31,16 @@ import { writeFileAtomic } from "../src/atomicWrite.js"
 import { readOpencodeKey, keyUsage } from "../src/openrouterCost.js"
 import { recordRunCost } from "../src/scorecard.js"
 
+async function resolveKey() {
+  const envKey = process.env.OPENROUTER_API_KEY
+  if (typeof envKey === "string" && envKey.length > 0) return envKey
+  return readOpencodeKey()
+}
+
 async function currentUsage() {
-  const key = await readOpencodeKey()
+  const key = await resolveKey()
   if (!key) {
-    process.stderr.write("run-cost: no OpenRouter key in opencode's auth store — skipping\n")
+    process.stderr.write("run-cost: no OpenRouter key in env or opencode's auth store — skipping\n")
     return null
   }
   try {
