@@ -24,6 +24,33 @@ import { sumCostSince } from "./scorecard.js"
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEK_MS = 7 * DAY_MS
 
+// The chart's trailing window auto-sizes to how far back the data actually
+// goes, clamped to this range — a fleet a month old shouldn't render 13
+// mostly-empty weeks, and a fleet with a year of history shouldn't render
+// an unreadable 50-bar chart. MIN_WEEKS keeps a very young fleet's chart
+// from looking like one or two bars adrift in empty space.
+const MIN_WEEKS = 4
+const MAX_WEEKS = 13
+
+// The earliest costed run across every agent, in whole trailing weeks (+1
+// so that run isn't flush against the chart's left edge), clamped to
+// [MIN_WEEKS, MAX_WEEKS]. Only looks at raw `{ runs }` inputs — a caller
+// passing pre-built buildAgentCost() results already picked its own window.
+function autoWeeks(agents, now) {
+  let earliest = null
+  for (const a of agents) {
+    if (a.buckets) continue
+    for (const r of a.runs || []) {
+      if (typeof r?.costUsd !== "number") continue
+      const t = Date.parse(r.at ?? "")
+      if (!Number.isNaN(t) && (earliest === null || t < earliest)) earliest = t
+    }
+  }
+  if (earliest === null) return MIN_WEEKS
+  const ageWeeks = Math.ceil((now - earliest) / WEEK_MS) + 1
+  return Math.min(MAX_WEEKS, Math.max(MIN_WEEKS, ageWeeks))
+}
+
 // The categorical palette's 8 slots, in fixed order (dataviz skill,
 // references/palette.md) — validated for adjacent-pair CVD/contrast on
 // stacked bars specifically. Slot order encodes identity and must stay
@@ -115,18 +142,22 @@ export function buildAgentCost({ name, runs = [], weeks = 13, now = Date.now() }
 
 /**
  * Combine several agents' cost stats into the fleet report and render it as
- * a standalone static HTML page (own <html> document, no client JS — same
- * posture as qualityLab.js's page).
+ * a standalone static HTML page (own <html> document). Unlike qualityLab.js's
+ * page, this one ships a small inline hover-tooltip script for the chart —
+ * still fully pre-rendered and self-contained (no fetch/XHR, no external
+ * script, no build step), just not JS-free.
  *
  * @param {object} opts
  * @param {object[]} opts.agents  either raw `{ name, runs }` (normalized via
  *   buildAgentCost) or pre-built buildAgentCost() results (must carry `buckets`)
- * @param {number} [opts.weeks=13]
+ * @param {number} [opts.weeks]  trailing window; omit to auto-size to the data
+ *   (earliest costed run, clamped to [4, 13] weeks) — see autoWeeks
  * @param {number} [opts.now]
  */
-export function buildCostLabReport({ agents = [], weeks = 13, now = Date.now() } = {}) {
+export function buildCostLabReport({ agents = [], weeks, now = Date.now() } = {}) {
+  const effectiveWeeks = weeks ?? autoWeeks(agents, now)
   const built = agents.map((a) =>
-    a.buckets ? a : buildAgentCost({ ...a, weeks, now })
+    a.buckets ? a : buildAgentCost({ ...a, weeks: effectiveWeeks, now })
   )
 
   const fleet = built.reduce(
@@ -139,7 +170,7 @@ export function buildCostLabReport({ agents = [], weeks = 13, now = Date.now() }
     },
     { last7d: 0, last30d: 0, allLogged: 0, runCount: 0 }
   )
-  fleet.buckets = Array.from({ length: weeks }, (_, i) =>
+  fleet.buckets = Array.from({ length: effectiveWeeks }, (_, i) =>
     built.reduce((sum, a) => sum + (a.buckets[i] || 0), 0)
   )
 
@@ -147,7 +178,7 @@ export function buildCostLabReport({ agents = [], weeks = 13, now = Date.now() }
     agents: built,
     fleet,
     generatedAt: new Date(now).toISOString(),
-    html: renderHtml(built, fleet, weeks, now),
+    html: renderHtml(built, fleet, effectiveWeeks, now),
   }
 }
 
@@ -165,6 +196,21 @@ function roundedTopRectPath(x, y, w, h, r) {
     `V${y + h} ` +
     `Z`
   )
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+// "Sep 8–14" (same month) or "Sep 29 – Oct 5" (spans a month boundary), for
+// the tooltip header — endMsExclusive is the bucket's exclusive end, so the
+// displayed last day is one day earlier.
+function formatWeekRange(startMs, endMsExclusive) {
+  const start = new Date(startMs)
+  const end = new Date(endMsExclusive - DAY_MS)
+  const sameMonth =
+    start.getUTCMonth() === end.getUTCMonth() && start.getUTCFullYear() === end.getUTCFullYear()
+  return sameMonth
+    ? `${MONTHS[start.getUTCMonth()]} ${start.getUTCDate()}–${end.getUTCDate()}`
+    : `${MONTHS[start.getUTCMonth()]} ${start.getUTCDate()} – ${MONTHS[end.getUTCMonth()]} ${end.getUTCDate()}`
 }
 
 function renderChart(built, fleet, weeks, now) {
@@ -195,7 +241,13 @@ function renderChart(built, fleet, weeks, now) {
     })
     .join("")
 
+  // Bars carry no pointer events of their own — the invisible per-column
+  // hit rect below is the hit target (dataviz skill: "the mark is the hit
+  // target... bigger than the mark"), and it answers "which key is this"
+  // for the whole column at once ("one tooltip, every series") rather than
+  // requiring the pointer to land on one thin segment.
   const bars = []
+  const hits = []
   for (let i = 0; i < weeks; i++) {
     const bandX = padL + i * bandW
     const x = bandX + (bandW - barW) / 2
@@ -209,25 +261,42 @@ function renderChart(built, fleet, weeks, now) {
       const isTopmost = si === segsForBar.length - 1
       const drawH = Math.max(0, segH - (isTopmost ? 0 : gap))
       const fill = `var(--series-${s.ai + 1})`
-      const title = `${escapeHtml(s.a.name)} · ${escapeHtml(formatUsd(s.v))}`
       if (isTopmost) {
-        bars.push(
-          `<path d="${roundedTopRectPath(x, top, barW, drawH, 4)}" fill="${fill}"><title>${title}</title></path>`
-        )
+        bars.push(`<path d="${roundedTopRectPath(x, top, barW, drawH, 4)}" fill="${fill}" pointer-events="none"/>`)
       } else {
         bars.push(
-          `<rect x="${x}" y="${top + gap}" width="${barW}" height="${Math.max(0, drawH - gap)}" fill="${fill}"><title>${title}</title></rect>`
+          `<rect x="${x}" y="${top + gap}" width="${barW}" height="${Math.max(0, drawH - gap)}" fill="${fill}" pointer-events="none"/>`
         )
       }
       yCursor = top
     })
+
+    const end = now - (weeks - 1 - i) * WEEK_MS
+    const start = end - WEEK_MS
+    const weekLabel = formatWeekRange(start, end)
+    const total = segsForBar.reduce((sum, s) => sum + s.v, 0)
+    const rows = [...segsForBar]
+      .sort((a, b) => b.v - a.v)
+      .map((s) => ({ name: s.a.name, amount: formatUsd(s.v), color: `var(--series-${s.ai + 1})` }))
+    const tooltip = escapeHtml(JSON.stringify({ label: weekLabel, total: formatUsd(total), rows }))
+    const summary =
+      rows.length > 0
+        ? `${weekLabel}: total ${formatUsd(total)} — ${rows.map((r) => `${r.name} ${r.amount}`).join(", ")}`
+        : `${weekLabel}: no spend logged`
+    hits.push(
+      `<rect class="hit" x="${bandX}" y="${padT}" width="${bandW}" height="${plotH}" ` +
+        `tabindex="0" role="img" aria-label="${escapeHtml(summary)}" data-tooltip="${tooltip}">` +
+        `<title>${escapeHtml(summary)}</title></rect>`
+    )
   }
 
-  // Sparse x-axis labels — a tick every 4th bucket (roughly monthly), plus
-  // "now" on the last, so 13 weeks doesn't crowd 820px with 13 date labels.
+  // X-axis labels: every bucket when there's room (a short, auto-sized
+  // window), otherwise a tick every 4th bucket (roughly monthly) plus "now"
+  // on the last, so a long window doesn't crowd 820px with date labels.
+  const labelEvery = weeks <= 7 ? 1 : 4
   const xLabels = []
   for (let i = 0; i < weeks; i++) {
-    if (i % 4 !== 0 && i !== weeks - 1) continue
+    if (i % labelEvery !== 0 && i !== weeks - 1) continue
     const end = now - (weeks - 1 - i) * WEEK_MS
     const label = i === weeks - 1 ? "now" : new Date(end).toISOString().slice(0, 10)
     const bandX = padL + i * bandW
@@ -240,6 +309,7 @@ function renderChart(built, fleet, weeks, now) {
     `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weekly OpenRouter spend by agent, trailing ${weeks} weeks">` +
     gridlines +
     bars.join("") +
+    hits.join("") +
     xLabels.join("") +
     `</svg>`
   )
@@ -330,12 +400,27 @@ function renderHtml(built, fleet, weeks, now) {
     background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
     padding: 16px 18px 8px; margin-bottom: 20px;
   }
-  svg { width: 100%; height: auto; display: block; }
+  svg { width: 100%; height: auto; display: block; overflow: visible; }
   .grid { stroke: var(--grid); stroke-width: 1; }
   .tick { fill: var(--muted); font-size: 10px; }
+  .hit { fill: transparent; cursor: pointer; }
+  .hit:hover, .hit:focus-visible { fill: var(--grid); fill-opacity: .5; }
+  .hit:focus-visible { outline: 1px solid var(--muted); outline-offset: -1px; }
   .legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin: 10px 2px 2px; }
   .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
   .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .cl-tooltip {
+    position: fixed; z-index: 10; pointer-events: none;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.18);
+    max-width: 240px;
+  }
+  .cl-tooltip[hidden] { display: none; }
+  .cl-tooltip-header { font-weight: 600; color: var(--text); margin-bottom: 4px; white-space: nowrap; }
+  .cl-tooltip-row { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+  .cl-tooltip-key { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .cl-tooltip-name { color: var(--muted); flex: 1; margin-right: 8px; }
+  .cl-tooltip-amt { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
   table { border-collapse: collapse; font-size: 13px; width: 100%; }
   th, td { padding: 6px 10px 6px 0; text-align: left; vertical-align: middle; }
   th {
@@ -366,6 +451,84 @@ ${legend(built)}
 ${built.map(agentRow).join("")}
 </table>
 </div>
+<div id="clTooltip" class="cl-tooltip" role="tooltip" hidden></div>
+<script>
+(function () {
+  var tip = document.getElementById("clTooltip");
+  function render(data) {
+    tip.textContent = "";
+    var header = document.createElement("div");
+    header.className = "cl-tooltip-header";
+    header.textContent = data.label + " · " + data.total;
+    tip.appendChild(header);
+    data.rows.forEach(function (r) {
+      var row = document.createElement("div");
+      row.className = "cl-tooltip-row";
+      var key = document.createElement("span");
+      key.className = "cl-tooltip-key";
+      key.style.background = r.color;
+      var name = document.createElement("span");
+      name.className = "cl-tooltip-name";
+      name.textContent = r.name;
+      var amt = document.createElement("span");
+      amt.className = "cl-tooltip-amt";
+      amt.textContent = r.amount;
+      row.appendChild(key);
+      row.appendChild(name);
+      row.appendChild(amt);
+      tip.appendChild(row);
+    });
+    if (data.rows.length === 0) {
+      var none = document.createElement("div");
+      none.className = "cl-tooltip-row cl-tooltip-name";
+      none.textContent = "No spend logged this week";
+      tip.appendChild(none);
+    }
+  }
+  function position(x, y) {
+    var pad = 14;
+    tip.style.left = "0px";
+    tip.style.top = "0px";
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    var left = x + pad, top = y + pad;
+    if (left + tw > window.innerWidth - 8) left = x - tw - pad;
+    if (top + th > window.innerHeight - 8) top = y - th - pad;
+    tip.style.left = Math.max(8, left) + "px";
+    tip.style.top = Math.max(8, top) + "px";
+  }
+  function show(el, x, y) {
+    var data;
+    try {
+      data = JSON.parse(el.getAttribute("data-tooltip"));
+    } catch (err) {
+      return;
+    }
+    render(data);
+    tip.hidden = false;
+    position(x, y);
+  }
+  function hide() {
+    tip.hidden = true;
+  }
+  var hits = document.querySelectorAll(".hit");
+  for (var i = 0; i < hits.length; i++) {
+    (function (el) {
+      el.addEventListener("pointermove", function (e) {
+        show(el, e.clientX, e.clientY);
+      });
+      el.addEventListener("pointerdown", function (e) {
+        show(el, e.clientX, e.clientY);
+      });
+      el.addEventListener("pointerleave", hide);
+      el.addEventListener("focus", function () {
+        var r = el.getBoundingClientRect();
+        show(el, r.left + r.width / 2, r.top);
+      });
+      el.addEventListener("blur", hide);
+    })(hits[i]);
+  }
+})();
+</script>
 </body>
 </html>
 `

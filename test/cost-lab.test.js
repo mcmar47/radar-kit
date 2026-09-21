@@ -86,6 +86,43 @@ test("buildCostLabReport sums agents into a fleet total and per-bucket series", 
   assert.equal(report.fleet.buckets[0], 0)
 })
 
+test("buildCostLabReport auto-sizes the window to the data when weeks is omitted", () => {
+  // A fleet ~2 weeks old: earliest costed run 12 days ago → clamps up to
+  // the 4-week floor rather than rendering 1-2 mostly-empty bars.
+  const young = buildCostLabReport({
+    agents: [{ name: "a", runs: [{ at: daysAgo(12), count: 1, costUsd: 0.1 }] }],
+    now: NOW,
+  })
+  assert.equal(young.agents[0].buckets.length, 4)
+
+  // A fleet with 10 weeks of history clamps to that, not the 13-week ceiling.
+  const older = buildCostLabReport({
+    agents: [{ name: "a", runs: [{ at: daysAgo(68), count: 1, costUsd: 0.1 }] }],
+    now: NOW,
+  })
+  assert.equal(older.agents[0].buckets.length, 11)
+
+  // A fleet older than 13 weeks clamps to the ceiling, not an ever-growing chart.
+  const ancient = buildCostLabReport({
+    agents: [{ name: "a", runs: [{ at: daysAgo(365), count: 1, costUsd: 0.1 }] }],
+    now: NOW,
+  })
+  assert.equal(ancient.agents[0].buckets.length, 13)
+
+  // No costed runs at all: falls back to the 4-week floor, not zero.
+  const empty = buildCostLabReport({ agents: [{ name: "a", runs: [] }], now: NOW })
+  assert.equal(empty.agents[0].buckets.length, 4)
+})
+
+test("an explicit weeks still overrides auto-sizing", () => {
+  const report = buildCostLabReport({
+    agents: [{ name: "a", runs: [{ at: daysAgo(1), count: 1, costUsd: 0.1 }] }],
+    weeks: 6,
+    now: NOW,
+  })
+  assert.equal(report.agents[0].buckets.length, 6)
+})
+
 test("buildCostLabReport accepts pre-built buildAgentCost results unchanged", () => {
   const pre = buildAgentCost({ name: "x", runs: [{ at: daysAgo(1), count: 1, costUsd: 0.4 }], weeks: 2, now: NOW })
   const report = buildCostLabReport({ agents: [pre], weeks: 2, now: NOW })
@@ -93,7 +130,7 @@ test("buildCostLabReport accepts pre-built buildAgentCost results unchanged", ()
   assert.equal(report.fleet.allLogged, 0.4)
 })
 
-test("the rendered html is a full document, has no script tags, and is safe HTML", () => {
+test("the rendered html is a full document with a safe, inline-only hover tooltip script", () => {
   const report = buildCostLabReport({
     agents: [{ name: 'a & "b"', runs: [{ at: daysAgo(1), count: 1, costUsd: 0.12 }] }],
     weeks: 3,
@@ -101,8 +138,49 @@ test("the rendered html is a full document, has no script tags, and is safe HTML
   })
   assert.match(report.html, /^<!doctype html>/)
   assert.match(report.html, /<\/html>\s*$/)
-  assert.doesNotMatch(report.html, /<script/i)
+  // The chart's hover tooltip needs JS (the user asked for real
+  // interactivity, not just a native title="" tooltip) — but it must stay
+  // self-contained: no external script, no fetch/XHR, and dynamic data only
+  // ever flows through data-tooltip attributes (rendered via escapeHtml,
+  // read back with getAttribute/JSON.parse and written with textContent),
+  // never concatenated into the script body itself.
+  assert.doesNotMatch(report.html, /<script[^>]*\ssrc=/i)
+  assert.doesNotMatch(report.html, /\bfetch\(|\bXMLHttpRequest\b/)
+  assert.match(report.html, /textContent/)
+  assert.doesNotMatch(report.html, /innerHTML/)
+  const scriptBody = report.html.match(/<script>([\s\S]*?)<\/script>/)[1]
+  assert.doesNotMatch(scriptBody, /a & "b"/, "agent data must not be concatenated into the script body")
   assert.match(report.html, /a &amp; &quot;b&quot;/)
+  assert.match(report.html, /data-tooltip="[^"]*&quot;a &amp; \\&quot;b\\&quot;&quot;/)
+})
+
+test("hovering a bar's data-tooltip lists every agent in that week, sorted by spend, with a color per row", () => {
+  const report = buildCostLabReport({
+    agents: [
+      { name: "small-spender", runs: [{ at: daysAgo(1), count: 1, costUsd: 0.05 }] },
+      { name: "big-spender", runs: [{ at: daysAgo(1), count: 1, costUsd: 0.2 }] },
+    ],
+    weeks: 2,
+    now: NOW,
+  })
+  const match = report.html.match(/data-tooltip="([^"]*total[^"]*\$0\.25[^"]*)"/)
+  assert.ok(match, "the most recent bucket's tooltip should show the combined $0.25 total")
+  const payload = JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&"))
+  assert.equal(payload.rows.length, 2)
+  assert.equal(payload.rows[0].name, "big-spender", "sorted by spend, highest first")
+  assert.equal(payload.rows[0].amount, "$0.20")
+  assert.equal(payload.rows[1].name, "small-spender")
+  assert.match(payload.rows[0].color, /^var\(--series-\d\)$/)
+  assert.notEqual(payload.rows[0].color, payload.rows[1].color)
+})
+
+test("a week with no spend gets an empty-rows tooltip, not one omitted entirely", () => {
+  const report = buildCostLabReport({
+    agents: [{ name: "a", runs: [{ at: daysAgo(1), count: 1, costUsd: 0.1 }] }],
+    weeks: 3,
+    now: NOW,
+  })
+  assert.match(report.html, /no spend logged/)
 })
 
 test("a zero-spend fleet still renders (niceMax degrades gracefully, no division by zero)", () => {

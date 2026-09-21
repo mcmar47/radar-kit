@@ -353,9 +353,21 @@ Per agent: total logged / last-7d / last-30d spend, runs counted, avg
 $/run, and the last run's cost + date + model. Fleet-wide: a stacked bar
 chart of weekly spend by agent over a trailing window (rolling 7-day
 buckets ending "now", not calendar weeks — the fleet's cadences run daily
-to monthly to on-demand, so calendar alignment buys nothing). Categorical
-color assignment is by agent, in a fixed order, per the dataviz skill's
+to monthly to on-demand, so calendar alignment buys nothing). The window
+auto-sizes to the data (`autoWeeks`: earliest logged run, clamped to 4–13
+weeks) unless a caller passes `weeks` explicitly, so a fleet with a month of
+history doesn't render ten empty trailing weeks. Categorical color
+assignment is by agent, in a fixed order, per the dataviz skill's
 adjacent-pair-validated 8-slot palette.
+
+Hovering (or focusing, via keyboard) a week's bar shows every agent's spend
+that week in one tooltip, each row keyed by the same color as its legend
+swatch — "which key is this segment" answered for the whole column at once
+rather than requiring the pointer to land on one thin stacked segment. This
+is the one place in the report that needs a small inline `<script>` (still
+fully pre-rendered, still no fetch/XHR or external script — dynamic values
+reach it only via `data-tooltip` attributes rendered through `escapeHtml`
+and read back with `textContent`).
 
 ## Using this in a repo
 
