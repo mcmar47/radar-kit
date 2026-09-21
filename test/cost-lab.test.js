@@ -123,6 +123,43 @@ test("an explicit weeks still overrides auto-sizing", () => {
   assert.equal(report.agents[0].buckets.length, 6)
 })
 
+test("projected30d extrapolates the logged total across the history window", () => {
+  // $1.40 logged over 14 days of history -> $0.10/day -> $3.00 projected.
+  const report = buildCostLabReport({
+    agents: [{ name: "a", runs: [{ at: daysAgo(14), count: 1, costUsd: 1.4 }] }],
+    now: NOW,
+  })
+  assert.equal(report.historyDays, 14)
+  assert.equal(Math.round(report.projected30d * 100) / 100, 3.0)
+  assert.match(report.html, /Projected 30-day/)
+  assert.match(report.html, /~\$3\.00/)
+})
+
+test("projected30d is null (and hidden) below MIN_PROJECTION_DAYS of history", () => {
+  const report = buildCostLabReport({
+    agents: [{ name: "a", runs: [{ at: daysAgo(2), count: 1, costUsd: 0.1 }] }],
+    now: NOW,
+  })
+  assert.equal(report.projected30d, null)
+  assert.doesNotMatch(report.html, /Projected 30-day/)
+})
+
+test("projected30d is null (and hidden) once real history reaches 30 days", () => {
+  const report = buildCostLabReport({
+    agents: [{ name: "a", runs: [{ at: daysAgo(30), count: 1, costUsd: 3 }] }],
+    weeks: 5,
+    now: NOW,
+  })
+  assert.equal(report.projected30d, null)
+  assert.doesNotMatch(report.html, /Projected 30-day/)
+})
+
+test("with no costed runs at all, historyDays is 0 and there's no projection", () => {
+  const report = buildCostLabReport({ agents: [{ name: "a", runs: [] }], now: NOW })
+  assert.equal(report.historyDays, 0)
+  assert.equal(report.projected30d, null)
+})
+
 test("buildCostLabReport accepts pre-built buildAgentCost results unchanged", () => {
   const pre = buildAgentCost({ name: "x", runs: [{ at: daysAgo(1), count: 1, costUsd: 0.4 }], weeks: 2, now: NOW })
   const report = buildCostLabReport({ agents: [pre], weeks: 2, now: NOW })

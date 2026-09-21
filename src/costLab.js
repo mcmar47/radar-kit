@@ -32,11 +32,16 @@ const WEEK_MS = 7 * DAY_MS
 const MIN_WEEKS = 4
 const MAX_WEEKS = 13
 
-// The earliest costed run across every agent, in whole trailing weeks (+1
-// so that run isn't flush against the chart's left edge), clamped to
-// [MIN_WEEKS, MAX_WEEKS]. Only looks at raw `{ runs }` inputs — a caller
-// passing pre-built buildAgentCost() results already picked its own window.
-function autoWeeks(agents, now) {
+// A 30-day projection needs at least this many days of real history before
+// it's worth showing — below it, one weekly/monthly agent's single run can
+// swing a naive daily rate wildly (see projected30d below).
+const MIN_PROJECTION_DAYS = 7
+
+// The earliest costed run across every agent, epoch ms or null if none.
+// Only looks at raw `{ runs }` inputs — a caller passing pre-built
+// buildAgentCost() results already picked its own window and has no raw
+// `runs` left to scan.
+function earliestCostedRunMs(agents) {
   let earliest = null
   for (const a of agents) {
     if (a.buckets) continue
@@ -46,9 +51,34 @@ function autoWeeks(agents, now) {
       if (!Number.isNaN(t) && (earliest === null || t < earliest)) earliest = t
     }
   }
+  return earliest
+}
+
+// The earliest costed run, in whole trailing weeks (+1 so that run isn't
+// flush against the chart's left edge), clamped to [MIN_WEEKS, MAX_WEEKS].
+function autoWeeks(agents, now) {
+  const earliest = earliestCostedRunMs(agents)
   if (earliest === null) return MIN_WEEKS
   const ageWeeks = Math.ceil((now - earliest) / WEEK_MS) + 1
   return Math.min(MAX_WEEKS, Math.max(MIN_WEEKS, ageWeeks))
+}
+
+/**
+ * A rough 30-day spend projection for a fleet that doesn't have 30 real
+ * days of history yet: linear extrapolation of the logged total over the
+ * whole history window (not just a trailing few days) — with cadences from
+ * daily to monthly, the full history is more likely to have caught at
+ * least one run from every agent than a short recent slice would. Returns
+ * null once real history reaches 30 days (the actual last30d figure is
+ * better by then, so this shouldn't linger) or before MIN_PROJECTION_DAYS
+ * of history exists (too little data for even a rough rate).
+ *
+ * @param {number} allLoggedUsd  fleet.allLogged
+ * @param {number} historyDays
+ */
+function projectMonthlySpend(allLoggedUsd, historyDays) {
+  if (historyDays < MIN_PROJECTION_DAYS || historyDays >= 30) return null
+  return (allLoggedUsd / historyDays) * 30
 }
 
 // The categorical palette's 8 slots, in fixed order (dataviz skill,
@@ -174,11 +204,17 @@ export function buildCostLabReport({ agents = [], weeks, now = Date.now() } = {}
     built.reduce((sum, a) => sum + (a.buckets[i] || 0), 0)
   )
 
+  const earliest = earliestCostedRunMs(agents)
+  const historyDays = earliest === null ? 0 : Math.max(1, Math.round((now - earliest) / DAY_MS))
+  const projected30d = projectMonthlySpend(fleet.allLogged, historyDays)
+
   return {
     agents: built,
     fleet,
+    historyDays,
+    projected30d,
     generatedAt: new Date(now).toISOString(),
-    html: renderHtml(built, fleet, effectiveWeeks, now),
+    html: renderHtml(built, fleet, effectiveWeeks, now, { historyDays, projected30d }),
   }
 }
 
@@ -328,9 +364,9 @@ function legend(built) {
   )
 }
 
-function statTile(value, label, denom) {
+function statTile(value, label, denom, estimate) {
   return (
-    `<div class="stat">` +
+    `<div class="stat${estimate ? " estimate" : ""}">` +
     `<div class="stat-value">${escapeHtml(String(value))}</div>` +
     `<div class="stat-label">${escapeHtml(label)}${denom ? ` <span class="denom">${escapeHtml(denom)}</span>` : ""}</div>` +
     `</div>`
@@ -351,7 +387,8 @@ function agentRow(a) {
   )
 }
 
-function renderHtml(built, fleet, weeks, now) {
+function renderHtml(built, fleet, weeks, now, projection) {
+  const { historyDays, projected30d } = projection ?? {}
   const generated = new Date(now).toISOString().slice(0, 16).replace("T", " ") + " UTC"
   const seriesVars = SLOTS.map(
     (s, i) => `--series-${i + 1}: ${s.light};`
@@ -388,11 +425,13 @@ function renderHtml(built, fleet, weeks, now) {
   h1 { font-size: 22px; margin: 0 0 2px; }
   h2 { font-size: 15px; margin: 24px 0 10px; }
   .meta { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
-  .stats-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
+  .meta.small { font-size: 12px; margin: 0 0 24px; max-width: 640px; }
+  .stats-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
   .stat {
     background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
     padding: 10px 16px; min-width: 130px; flex: 1 1 130px;
   }
+  .stat.estimate { border-style: dashed; }
   .stat-value { font-size: 22px; font-weight: 600; line-height: 1.2; }
   .stat-label { color: var(--muted); font-size: 12px; margin-top: 2px; }
   .denom { color: var(--muted); font-weight: 400; }
@@ -439,7 +478,13 @@ function renderHtml(built, fleet, weeks, now) {
 ${statTile(formatUsd(fleet.last7d), "Last 7 days")}
 ${statTile(formatUsd(fleet.last30d), "Last 30 days")}
 ${statTile(formatUsd(fleet.allLogged), "Logged all-time", `${fleet.runCount} runs`)}
+${typeof projected30d === "number" ? statTile(`~${formatUsd(projected30d)}`, "Projected 30-day", `from ${historyDays}d`, true) : ""}
 </div>
+${
+  typeof projected30d === "number"
+    ? `<p class="meta small">Projected 30-day extrapolates the ${escapeHtml(formatUsd(fleet.allLogged))} logged so far across ${historyDays} day${historyDays === 1 ? "" : "s"} of history — a rough linear estimate, not a bill. Replaced by the real Last 30 days figure once that much history exists.</p>`
+    : ""
+}
 <div class="card">
 <h2>Weekly spend by agent, trailing ${weeks} weeks</h2>
 ${renderChart(built, fleet, weeks, now)}
