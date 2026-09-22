@@ -77,6 +77,16 @@ more than once across the sibling repos, not by "these look similar."
   Reinstalling `radar-kit` without checking that pin against the Pi's actual `opencode --version`
   is a known way to end up with a mismatched plugin API at runtime.
 
+## Radar Forge (`forge/`)
+
+`forge/create-radar.js` scaffolds a new radar repo — implements FUTURE-PROJECTS.md #9.
+Run by hand on the Mac (`node forge/create-radar.js --help`); never scheduled, never
+deployed, never touched by `update-radar-kit.sh` below. See `forge/README.md` for what it
+generates fully-working vs. leaves as a TODO, and why (the short version: two real
+archetypes exist — server-backed like serendipity-radar, static-board like prize-radar —
+and the generator supports both rather than forcing one; the mark-key module is the one
+part every generated radar must ship as exported code, per #9's own restraint).
+
 ## Deploying a change
 
 Editing this repo does not by itself update anything — `pi-ops/update-radar-kit.sh`

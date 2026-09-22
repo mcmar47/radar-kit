@@ -369,6 +369,22 @@ fully pre-rendered, still no fetch/XHR or external script — dynamic values
 reach it only via `data-tooltip` attributes rendered through `escapeHtml`
 and read back with `textContent`).
 
+## Radar Forge
+
+`forge/create-radar.js` scaffolds a new radar repo — implements FUTURE-PROJECTS.md #9's
+generator, built after Serendipity Radar and prize-radar (two genuinely different shapes)
+existed to encode commonality against. Run by hand:
+
+```
+node forge/create-radar.js --name <kebab-name> --archetype server|static \
+  --key-fields title,date
+```
+
+Full flags: `node forge/create-radar.js --help`. See `forge/README.md` for the restraint
+it follows (what's generated fully-working vs. left as a TODO), why the mark-key module is
+the one non-negotiable part of every generated radar, and why the `pi-ops`/`pi-bootstrap`
+registration steps are handed off as ready-to-paste content rather than auto-applied.
+
 ## Using this in a repo
 
 `.opencode/package.json` (hand-maintained and gitignored on purpose, since

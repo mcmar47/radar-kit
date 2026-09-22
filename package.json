@@ -1,6 +1,6 @@
 {
   "name": "radar-kit",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -21,7 +21,8 @@
     "./reviewedRoute": "./src/reviewedRoute.js"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "create-radar": "node forge/create-radar.js"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "*"
