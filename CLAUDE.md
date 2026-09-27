@@ -40,7 +40,9 @@ more than once across the sibling repos, not by "these look similar."
   rendered chart), and
   `test/concurrency.test.js` (per-path write serialization in `writeFileAtomic`, no lost
   updates across concurrent `markStore.set`/`setMany`, and the SMTP send's password-free
-  error labels and idle timeout). The
+  error labels and idle timeout), and `test/seen-store.test.js` (`readStagedItems` /
+  `appendSeenItems` / `createSeenRecorder` — recording sent items from the staging file, not
+  from the model's retyped arguments). The
   interest-server tests are written to fail against the pre-fix
   behavior of real bugs found on the Pi, so they double as regression tests for incidents, not
   just spec coverage.

@@ -7,6 +7,9 @@ export {
   deleteIfExists,
   makeKeyFn,
   normalizeField,
+  readStagedItems,
+  appendSeenItems,
+  createSeenRecorder,
 } from "./src/seenStore.js"
 export { createCheckDedupTool, createAppendSeenTool } from "./src/dedupTools.js"
 export {

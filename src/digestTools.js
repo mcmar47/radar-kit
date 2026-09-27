@@ -187,6 +187,7 @@ export function createSendDigestEmailTool({
   extraSection,
   push,
   continuumPush,
+  recordSent,
 }) {
   return tool({
     description,
@@ -227,6 +228,23 @@ export function createSendDigestEmailTool({
       }
 
       const result = await sendGmailMessage({ to: digestRecipient, subject, text, html })
+
+      // Record exactly what was sent into the repo's seen store, straight
+      // from the staging file, the moment the send is confirmed — so a model
+      // that sends and then never calls its append tool can't make the next
+      // run re-send the same digest (CODE-REVIEW-2026-09.md O3). The append
+      // tool still runs afterwards and finds nothing new. Never fatal: a
+      // thrown error here would read to the model as a failed send and
+      // invite exactly the re-send this exists to prevent.
+      let recordedOnSend = null
+      if (recordSent && items.length > 0) {
+        try {
+          recordedOnSend = await recordSent({ items, directory: context.directory })
+        } catch (err) {
+          console.error("send_digest_email: recordSent failed:", err)
+          recordedOnSend = { error: String(err?.message ?? err) }
+        }
+      }
 
       // Tell the extra section's source it went out (Research Desk stamps
       // deliveredAt). Best-effort — the section's own freshness window is
@@ -274,6 +292,7 @@ export function createSendDigestEmailTool({
           threadId: result.threadId,
           itemCount: items.length,
           ...(extra ? { extraSection: extra.id ?? true } : {}),
+          ...(recordedOnSend ? { recordedOnSend } : {}),
           ...(extraResultFields && items.length ? extraResultFields(items) : {}),
         },
         null,
