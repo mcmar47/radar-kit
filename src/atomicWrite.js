@@ -25,7 +25,19 @@
 // script imports it via "radar-kit/atomicWrite" and pulls nothing else.
 
 import { open, rename, mkdir } from "node:fs/promises"
-import { dirname } from "node:path"
+import { dirname, resolve } from "node:path"
+
+// In-flight writes, keyed by absolute destination path. Every write to one
+// path shares one temp name (`<path>.tmp` — several consumers' .gitignore
+// files list that exact name, so a crash leftover never gets committed), so
+// two overlapping writes to the same path used to open, truncate and write
+// that one temp file at once. The first rename then took whatever mix of
+// bytes was there, and every later rename failed ENOENT because the temp
+// file was already gone. Measured 2026-09-27: 40 concurrent mark writes left
+// 1 key on disk and 39 requests 500ing. Chaining writes per path within the
+// process closes that. It is not a cross-process lock — each store still
+// needs a single writing process, as every server in this fleet already is.
+const inFlight = new Map()
 
 /**
  * @param {string} filePath   destination path
@@ -36,7 +48,27 @@ import { dirname } from "node:path"
  *        stay world-readable
  * @param {boolean} [opts.ensureDir=false]  mkdir -p the parent directory first
  */
-export async function writeFileAtomic(filePath, data, { mode = 0o644, ensureDir = false } = {}) {
+export function writeFileAtomic(filePath, data, opts = {}) {
+  const key = resolve(filePath)
+  const prev = inFlight.get(key) ?? Promise.resolve()
+  // Run after the previous write settles either way, so one failed write
+  // cannot wedge every later one.
+  const run = prev.then(
+    () => writeOnce(filePath, data, opts),
+    () => writeOnce(filePath, data, opts)
+  )
+  const settled = run.then(
+    () => {},
+    () => {}
+  )
+  inFlight.set(key, settled)
+  settled.then(() => {
+    if (inFlight.get(key) === settled) inFlight.delete(key)
+  })
+  return run
+}
+
+async function writeOnce(filePath, data, { mode = 0o644, ensureDir = false } = {}) {
   if (ensureDir) await mkdir(dirname(filePath), { recursive: true })
 
   const tmp = `${filePath}.tmp`

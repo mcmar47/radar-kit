@@ -155,13 +155,15 @@ export function buildRawMimeMessage({
 
 // Reads one SMTP reply, which may span several `NNN-...` continuation lines
 // before the terminating `NNN <text>` line (space, not dash, after the
-// code). Resolves { code, text } on that terminator; rejects on socket error.
+// code). Resolves { code, text } on that terminator; rejects on a socket
+// error, or if the server closes the connection before replying.
 function readSmtpReply(socket) {
   return new Promise((resolve, reject) => {
     let buf = ""
     const cleanup = () => {
       socket.removeListener("data", onData)
       socket.removeListener("error", onError)
+      socket.removeListener("close", onClose)
     }
     const onData = (chunk) => {
       buf += chunk.toString("utf8")
@@ -177,10 +179,20 @@ function readSmtpReply(socket) {
       cleanup()
       reject(err)
     }
+    const onClose = () => {
+      cleanup()
+      reject(new Error("SMTP connection closed before the server replied"))
+    }
     socket.on("data", onData)
     socket.on("error", onError)
+    socket.on("close", onClose)
   })
 }
+
+// How long the connection may sit idle waiting on Gmail before the send is
+// abandoned. Without it a stalled connection hung the whole agent run until
+// the wrapper's 45-minute kill, with no digest and no clear error.
+const SMTP_IDLE_TIMEOUT_MS = 60_000
 
 // Minimal SMTP-over-implicit-TLS submission: EHLO, AUTH LOGIN, one
 // recipient, one message. Deliberately dependency-free — Gmail's submission
@@ -188,36 +200,57 @@ function readSmtpReply(socket) {
 // at a time, so the surface a full mailer library would cover (connection
 // pooling, pipelining, STARTTLS upgrade, retry queues) is all absent by
 // design.
-async function smtpSubmit({ user, pass, envelopeFrom, to, raw }) {
-  const socket = tls.connect({ host: SMTP_HOST, port: SMTP_PORT, servername: SMTP_HOST })
+export async function smtpSubmit({
+  user,
+  pass,
+  envelopeFrom,
+  to,
+  raw,
+  // Injectable only so tests can point this at a local fake server.
+  connect = () => tls.connect({ host: SMTP_HOST, port: SMTP_PORT, servername: SMTP_HOST }),
+  idleTimeoutMs = SMTP_IDLE_TIMEOUT_MS,
+}) {
+  const socket = connect()
   socket.setEncoding("utf8")
+  socket.setTimeout(idleTimeoutMs, () => {
+    socket.destroy(new Error(`SMTP timed out after ${idleTimeoutMs / 1000}s with no reply`))
+  })
   try {
-    const step = async (command, ...okCodes) => {
+    // `label` is what an error names the step as. It is always a fixed
+    // word, never derived from the command: the AUTH LOGIN steps send the
+    // base64 username and app password as bare lines, and naming a failed
+    // step by its command's first word used to put the encoded password
+    // straight into the error -- which a tool error hands to the model (so
+    // to OpenRouter) and to the journal.
+    const step = async (command, label, ...okCodes) => {
       if (command !== null) socket.write(command + "\r\n")
       const { code, text } = await readSmtpReply(socket)
       if (!okCodes.includes(code)) {
-        const label = command ? command.split(" ")[0] : "greeting"
-        // Never let a raw AUTH line into an error message.
         throw new Error(`SMTP ${label} failed: ${text.replace(/\s+/g, " ").trim()}`)
       }
       return text
     }
 
-    await step(null, 220)
-    await step("EHLO radar-kit", 250)
-    await step("AUTH LOGIN", 334)
-    await step(Buffer.from(user, "utf8").toString("base64"), 334)
-    await step(Buffer.from(pass, "utf8").toString("base64"), 235)
-    await step(`MAIL FROM:<${envelopeFrom}>`, 250)
-    await step(`RCPT TO:<${to}>`, 250, 251)
-    await step("DATA", 354)
+    await step(null, "greeting", 220)
+    await step("EHLO radar-kit", "EHLO", 250)
+    await step("AUTH LOGIN", "AUTH", 334)
+    await step(Buffer.from(user, "utf8").toString("base64"), "AUTH username", 334)
+    await step(Buffer.from(pass, "utf8").toString("base64"), "AUTH password", 235)
+    await step(`MAIL FROM:<${envelopeFrom}>`, "MAIL FROM", 250)
+    await step(`RCPT TO:<${to}>`, "RCPT TO", 250, 251)
+    await step("DATA", "DATA", 354)
     // Normalize to CRLF, then dot-stuff any line that begins with '.' so it
     // can't be read as the end-of-data terminator.
     const body = raw.replace(/\r?\n/g, "\r\n").replace(/(^|\r\n)\./g, "$1..")
     socket.write(body + "\r\n.\r\n")
-    await step(null, 250)
-    await step("QUIT", 221)
+    await step(null, "message", 250)
+    await step("QUIT", "QUIT", 221)
   } finally {
+    // Once no reply is being awaited nothing else listens for "error", and
+    // an unhandled one (a late reset, the idle timer firing) would crash
+    // the whole process. The send's outcome is already decided by now.
+    socket.setTimeout(0)
+    socket.on("error", () => {})
     socket.end()
   }
 }

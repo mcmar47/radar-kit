@@ -158,6 +158,67 @@ export function createMarkStore({ paths, exclusive = false }) {
     return paths[name]
   }
 
+  // Every mutation is read-the-file, change it, write it back. Two requests
+  // arriving together (the Continuum app fires one per swipe, and replays
+  // its offline outbox in a burst) both read the same bytes and the second
+  // write silently discards the first — a lost update, even with the
+  // atomic write underneath. Run mutations one at a time per instance, the
+  // same promise-chain pattern shelf's store.js uses. In-process only; each
+  // store has a single writing server.
+  let chain = Promise.resolve()
+  function serialize(fn) {
+    const result = chain.then(fn, fn)
+    chain = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+
+  // Apply one value to many keys in a single read/write per store.
+  async function applyMany({ store, keys, value, via }) {
+    const touched = []
+    const marks = await readMarks(pathFor(store))
+    const at = new Date().toISOString()
+
+    for (const key of keys) {
+      if (value) {
+        const existing = marks[key]
+        if (existing && typeof existing === "object" && existing.at) {
+          // keep the first-seen record untouched
+        } else {
+          marks[key] = { at, via: via ?? null }
+        }
+      } else {
+        delete marks[key]
+      }
+    }
+    await writeMarks(pathFor(store), marks)
+    touched.push(store)
+
+    // Clearing a mark can't contradict anything, so only a set needs to
+    // sweep the others.
+    if (value && exclusive) {
+      for (const other of names) {
+        if (other === store) continue
+        const otherMarks = await readMarks(pathFor(other))
+        let changed = false
+        for (const key of keys) {
+          if (otherMarks[key]) {
+            delete otherMarks[key]
+            changed = true
+          }
+        }
+        if (changed) {
+          await writeMarks(pathFor(other), otherMarks)
+          touched.push(other)
+        }
+      }
+    }
+
+    return { touched }
+  }
+
   return {
     names,
     isValidStore,
@@ -174,47 +235,28 @@ export function createMarkStore({ paths, exclusive = false }) {
     // leaves the original timestamp alone (the first mark is the signal);
     // re-setting a legacy `true` upgrades it in place.
     async set({ store, key, value, via = null }) {
-      const touched = []
-      const marks = await readMarks(pathFor(store))
+      pathFor(store) // reject an unknown store before queueing
+      return serialize(() => applyMany({ store, keys: [key], value, via }))
+    },
 
-      if (value) {
-        const existing = marks[key]
-        if (existing && typeof existing === "object" && existing.at) {
-          // keep the first-seen record untouched
-        } else {
-          marks[key] = { at: new Date().toISOString(), via: via ?? null }
-        }
-      } else {
-        delete marks[key]
-      }
-      await writeMarks(pathFor(store), marks)
-      touched.push(store)
-
-      // Clearing a mark can't contradict anything, so only a set needs to
-      // sweep the others.
-      if (value && exclusive) {
-        for (const other of names) {
-          if (other === store) continue
-          const otherMarks = await readMarks(pathFor(other))
-          if (otherMarks[key]) {
-            delete otherMarks[key]
-            await writeMarks(pathFor(other), otherMarks)
-            touched.push(other)
-          }
-        }
-      }
-
-      return { touched }
+    // set() for a batch of keys — one read and one write per store instead
+    // of one per key, which matters for the app's "mark all as seen" on a
+    // Pi's SD card. Same semantics as calling set() once per key.
+    async setMany({ store, keys, value, via = null }) {
+      pathFor(store)
+      return serialize(() => applyMany({ store, keys, value, via }))
     },
 
     // Empty every named store. Used by the "reviewed" route's `{ clear: true }`
     // body — the app's "show seen items again" wipes the whole store rather
     // than deleting keys one at a time. Returns the store names it wrote.
     async clear() {
-      for (const name of names) {
-        await writeMarks(pathFor(name), Object.create(null))
-      }
-      return [...names]
+      return serialize(async () => {
+        for (const name of names) {
+          await writeMarks(pathFor(name), Object.create(null))
+        }
+        return [...names]
+      })
     },
   }
 }

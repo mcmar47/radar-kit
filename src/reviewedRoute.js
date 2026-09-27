@@ -122,8 +122,14 @@ export function createReviewedRoute({
         keys.push(key)
       }
 
-      for (const key of keys) {
-        await reviewed.set({ store, key, value, via })
+      // One read/write for the whole batch. A store built by an older
+      // createMarkStore (no setMany) falls back to one set() per key.
+      if (typeof reviewed.setMany === "function") {
+        await reviewed.setMany({ store, keys, value, via })
+      } else {
+        for (const key of keys) {
+          await reviewed.set({ store, key, value, via })
+        }
       }
 
       sendJson(res, 200, { ok: true, reviewed: value, count: keys.length })

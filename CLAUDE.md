@@ -37,7 +37,10 @@ more than once across the sibling repos, not by "these look similar."
   and `buildQualityLabReport`'s fleet rollup), and
   `test/cost-lab.test.js` (`buildAgentCost`'s trailing-7-day bucketing and
   last-7d/30d/all-time totals, and `buildCostLabReport`'s fleet rollup and
-  rendered chart). The
+  rendered chart), and
+  `test/concurrency.test.js` (per-path write serialization in `writeFileAtomic`, no lost
+  updates across concurrent `markStore.set`/`setMany`, and the SMTP send's password-free
+  error labels and idle timeout). The
   interest-server tests are written to fail against the pre-fix
   behavior of real bugs found on the Pi, so they double as regression tests for incidents, not
   just spec coverage.
