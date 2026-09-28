@@ -109,12 +109,12 @@ A full repo skeleton at `<dest>/<name>/`:
 - `deploy/pi-ops/<name>.service` + `.timer`, `deploy/pi-bootstrap/nginx-<name>` — generated
   content ready to hand-copy into those repos (see below for why not automated).
 - `DEPLOY-CHECKLIST.md` — the exact edits still needed in `pi-ops` and `pi-bootstrap`
-  (the heartbeat `CHECKS`/`PROBES` lines, the `AGENT_REPOS` addition, running the deploy
-  script) with the content pre-written.
+  (the `pi-ops/fleet.json` rows, the `AGENT_REPOS` addition, installing the unit) with the
+  content pre-written.
 
 ## Why `pi-ops` / `pi-bootstrap` are handed off, not auto-edited
 
-Those repos' files (`heartbeat-check.sh`, `backup-secrets.sh`, `FLEET.md`) carry dense,
+Those repos' files (`fleet.json`, `backup-secrets.sh`, `FLEET.md`) carry dense,
 hand-written, per-radar comments and a specific ordering that records *why* each entry
 exists — the fleet's own convention, visible in every one of those files today. A
 generator blindly appending a line is more likely to corrupt that record than help. So
