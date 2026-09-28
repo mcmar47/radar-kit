@@ -335,3 +335,23 @@ test("makeKeyFn normalizes by default and preserves exact fields verbatim", () =
   // not spelling).
   assert.equal(keyOf({ title: "my   book", release_date: "TBD" }), "my book|TBD")
 })
+
+test("text and HTML parts are base64 with short lines, and decode back to the original (code review O10)", () => {
+  const longParagraph = "Résumé — “curly” ".repeat(200) // UTF-8, and one line far past 998 chars
+  const raw = buildRawMimeMessage({
+    to: "someone@example.com",
+    subject: "Digest",
+    text: longParagraph,
+    html: `<html><body><p>${longParagraph}</p></body></html>`,
+    fromName: "CmarBot",
+    fromAddress: "someone+cmarbot@example.com",
+  })
+  assert.ok(!raw.includes("Content-Transfer-Encoding: 7bit"))
+  assert.equal(raw.split("\r\n").filter((l) => l.length > 998).length, 0, "no line over SMTP's limit")
+  assert.ok(/^[\x00-\x7f]*$/.test(raw), "the whole message is 7-bit clean")
+
+  const parts = raw.split(/\r\n--/).filter((p) => p.includes("Content-Transfer-Encoding: base64"))
+  const decoded = parts.map((p) => Buffer.from(p.split("\r\n\r\n")[1].replace(/\r\n/g, ""), "base64").toString("utf8"))
+  assert.equal(decoded[0], longParagraph)
+  assert.equal(decoded[1], `<html><body><p>${longParagraph}</p></body></html>`)
+})

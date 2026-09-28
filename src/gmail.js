@@ -90,6 +90,20 @@ function attachmentPart(boundary, { filename, contentType, content }) {
   ]
 }
 
+// Text and HTML parts go out as base64. They used to be declared "7bit" while
+// carrying UTF-8 (an em dash, a curly quote, any non-English title), which
+// isn't 7-bit, and a long Research Desk paragraph rendered as one line joined
+// by <br> could exceed SMTP's 998-character line limit, which a relay may
+// mangle or reject (code review O10, 2026-09-27). base64 is 7-bit clean and
+// wrapped at 76 characters, so neither can happen. Mail clients decode it
+// transparently.
+function base64Body(str) {
+  return Buffer.from(String(str ?? ""), "utf8")
+    .toString("base64")
+    .replace(/(.{76})/g, "$1\r\n")
+    .replace(/\r\n$/, "")
+}
+
 export function buildRawMimeMessage({
   to,
   subject,
@@ -107,15 +121,15 @@ export function buildRawMimeMessage({
     "",
     `--${altBoundary}`,
     "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: 7bit",
+    "Content-Transfer-Encoding: base64",
     "",
-    text,
+    base64Body(text),
     "",
     `--${altBoundary}`,
     "Content-Type: text/html; charset=UTF-8",
-    "Content-Transfer-Encoding: 7bit",
+    "Content-Transfer-Encoding: base64",
     "",
-    html,
+    base64Body(html),
     "",
     `--${altBoundary}--`,
   ]
