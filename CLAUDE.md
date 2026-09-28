@@ -54,9 +54,21 @@ more than once across the sibling repos, not by "these look similar."
 
 - **`index.js`** and `src/*.js` — the shared modules. `exports` in `package.json` defines several
   subpaths (`.`, `./server`, `./markStore`, `./atomicWrite`, `./seenStore`, `./calibration`, `./scorecard`, `./qualityLab`, `./costLab`, `./gmail`, `./ntfy`, `./continuumPush`, `./health`,
-  `./oneClickMark`, `./reviewedRoute`).
-  **Keep `markStore.js`, `interestServer.js`, `seenStore.js`, `calibration.js`, `scorecard.js`, `qualityLab.js`, `costLab.js`, `gmail.js`,
-  `ntfy.js`, `continuumPush.js`, `healthRoute.js`, `oneClickMark.js`, `reviewedRoute.js` and `atomicWrite.js` free of any
+  `./oneClickMark`, `./reviewedRoute`, `./runRoute`, `./markServer`).
+- **`src/markServer.js`** (`./markServer`) — `createMarkServer`, a radar's whole interest-server
+  from one declaration (stores, one-click GET, the POST toggles or feed-radar's single
+  `/api/mark`, reviewed, health, run). The four original radars' servers are now this. Its
+  request/response shapes are pinned by `test/mark-server.test.js` to what the pages and the
+  Continuum app send, so change them only together with every client.
+- **`src/runRoute.js`** (`./runRoute`) — `POST /api/run`, which starts a radar's systemd run now:
+  JSON-only, 409 while running, 429 within 30 minutes.
+- **`scripts/agent-run.sh`** — the agents' run wrappers `source` this (from their
+  `.opencode/node_modules/radar-kit/`) for the shared plumbing: init, pull, command-file parsing,
+  cost logging, the timeout, the completion guards, the heartbeat, and the retry loop. A change
+  here reaches every agent on its next run after `update-radar-kit.sh`, so run
+  `test/agent-run.test.js` and keep functions backward compatible.
+- **Keep `markStore.js`, `interestServer.js`, `seenStore.js`, `calibration.js`, `scorecard.js`, `qualityLab.js`, `costLab.js`, `gmail.js`,
+  `ntfy.js`, `continuumPush.js`, `healthRoute.js`, `oneClickMark.js`, `reviewedRoute.js`, `runRoute.js`, `markServer.js` and `atomicWrite.js` free of any
   import that reaches `@opencode-ai/plugin`** — that peer dependency is optional specifically so a
   bare interest-server (no opencode involved at all) can `npm install radar-kit` and pull exactly
   one package. Reintroducing that import path defeats the reason this package is usable from
