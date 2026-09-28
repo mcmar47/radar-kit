@@ -1,6 +1,6 @@
 {
   "name": "radar-kit",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -19,7 +19,8 @@
     "./health": "./src/healthRoute.js",
     "./oneClickMark": "./src/oneClickMark.js",
     "./reviewedRoute": "./src/reviewedRoute.js",
-    "./runRoute": "./src/runRoute.js"
+    "./runRoute": "./src/runRoute.js",
+    "./markServer": "./src/markServer.js"
   },
   "scripts": {
     "test": "node --test",
