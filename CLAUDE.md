@@ -80,6 +80,10 @@ more than once across the sibling repos, not by "these look similar."
   (127.0.0.1:8031) with one per-radar summary banner per digest run. Wired into
   `createSendDigestEmailTool` via its `continuumPush: { noun, ... }` option, alongside the
   existing `push`/pickHighlight ntfy channel.
+  Since 1.17.0 `sendContinuumPush` ALSO posts every push to ntfy on a third, dedicated topic
+  (`~/.config/pi-ops/ntfy-digest-topic`, no file = no-op), because the Continuum app may not be
+  installed and APNs answers 200 for stale tokens. Titles are forced to ASCII; `clickUrl`
+  (http only) is the ntfy tap target.
 - **`src/calibration.js`** joins a repo's star/reject mark file back to its records file by
   `keyFields`, which must match what that repo's interest-server writes or the join silently finds
   nothing. See README's table for all four repos' `keyFields`. Every repo is now wired up;
