@@ -90,3 +90,17 @@ test("one-click links carry the kind+title key and both mark endpoints", async (
   assert.match(section.html, /kind=game/)
   await cleanup()
 })
+
+test("books and games get an add-to-shelf link; other kinds do not", async () => {
+  const mk = (kind, n) => discovery({ id: "k-" + n, kind, title: "T " + kind })
+  const { file, cleanup } = await discoveriesFile([mk("book", 1), mk("game", 2), mk("exhibition", 3)])
+  try {
+    const { html } = await readPendingSerendipityDiscoveries(file, { now: NOW })
+    assert.equal((html.match(/shelf-want/g) || []).length, 2)
+    assert.match(html, /shelf-want\?kind=book/)
+    assert.match(html, /shelf-want\?kind=game/)
+    assert.doesNotMatch(html, /shelf-want\?kind=exhibition/)
+  } finally {
+    await cleanup()
+  }
+})

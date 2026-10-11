@@ -15,8 +15,8 @@
 // `calibrationTool.js` every other radar uses, no changes needed there.
 //
 // The freshness window is the real backstop against sending the same batch
-// twice: this radar runs weekly (Sat 05:00) and rides that same morning's
-// 06:30 feed-radar digest, well over 26h before the following Saturday's
+// twice: this radar runs twice weekly (Wed + Sat 05:00) and rides that same morning's
+// 06:30 feed-radar digest, well over 26h before the next run's
 // batch could be mistaken for it. `deliveredAt` (stamped via onDelivered
 // after a confirmed send) is belt-and-suspenders on top of that.
 
@@ -94,6 +94,9 @@ export async function readPendingSerendipityDiscoveries(
   }
 }
 
+// Kinds the shelf can hold as a "want" (serendipity-radar/src/shelf.js).
+const SHELF_KINDS = new Set(["book", "game"])
+
 const KIND_LABELS = {
   exhibition: "Exhibition",
   game: "Game",
@@ -115,6 +118,11 @@ function renderSection(items) {
       const interested = `${base}/api/mark?${qs}&mark=interested`
       const ignored = `${base}/api/mark?${qs}&mark=ignored`
       const label = KIND_LABELS[it.kind] || KIND_LABELS.other
+      // The shelf only holds books and games (of the kinds this radar emits),
+      // so only those get an "add to shelf" link.
+      const shelfLink = SHELF_KINDS.has(it.kind)
+        ? ` &nbsp;·&nbsp; <a href="${escapeText(`${base}/api/shelf-want?${qs}`)}">&#43; add to shelf</a>`
+        : ""
       return (
         `<li><b>${escapeText(it.title)}</b> <i>(${escapeText(label)})</i><br>` +
         `${escapeText(it.why_it_connects)}<br>` +
@@ -122,7 +130,7 @@ function renderSection(items) {
         (it.link ? `<a href="${escapeText(it.link)}">Link</a>` : "") +
         (it.availability ? ` &mdash; ${escapeText(it.availability)}` : "") +
         `<br><small><a href="${escapeText(interested)}">&#9733; more like this</a> &nbsp;·&nbsp; ` +
-        `<a href="${escapeText(ignored)}">&#10005; not for me</a></small></li>`
+        `<a href="${escapeText(ignored)}">&#10005; not for me</a>${shelfLink}</small></li>`
       )
     })
     .join("")
