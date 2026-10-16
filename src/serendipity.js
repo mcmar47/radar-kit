@@ -20,7 +20,7 @@
 // batch could be mistaken for it. `deliveredAt` (stamped via onDelivered
 // after a confirmed send) is belt-and-suspenders on top of that.
 
-import { readFile } from "node:fs/promises"
+import { readFile, writeFile, rename } from "node:fs/promises"
 
 const DEFAULT_MAX_AGE_HOURS = 26
 
@@ -35,6 +35,14 @@ const escapeText = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ESC[c])
  * @param {string} [opts.port]   serendipity-radar server port for the
  *        delivered callback
  * @param {number} [opts.now]    epoch ms, injectable for tests
+ * @param {string} [opts.heading="Serendipity"]  section heading (the free-model
+ *        shadow trial passes a "(trial)" heading)
+ * @param {boolean} [opts.links=true]  render the star/ignore/add-to-shelf
+ *        links; the trial turns them off so its picks can't write marks into
+ *        the real radar's stores
+ * @param {boolean} [opts.stampFile=false]  on delivery, stamp deliveredAt
+ *        straight into the file instead of POSTing to the server (the trial's
+ *        server only runs during its own run)
  * @returns {Promise<{id, html, text, onDelivered}|null>}
  */
 export async function readPendingSerendipityDiscoveries(
@@ -43,6 +51,9 @@ export async function readPendingSerendipityDiscoveries(
     maxAgeHours = DEFAULT_MAX_AGE_HOURS,
     port = process.env.SERENDIPITY_RADAR_PORT || "8025",
     now = Date.now(),
+    heading = "Serendipity",
+    links = true,
+    stampFile = false,
   } = {}
 ) {
   let records
@@ -58,7 +69,7 @@ export async function readPendingSerendipityDiscoveries(
   // whose generatedAt falls inside the freshness window.
   const byBatch = new Map()
   for (const r of records) {
-    if (!r || r.deliveredAt || !r.batchId) continue
+    if (!r || r.deliveredAt || !r.batchId || r.trialSeed) continue
     const t = Date.parse(r.generatedAt || "")
     if (Number.isNaN(t) || t < cutoff) continue
     if (!byBatch.has(r.batchId)) byBatch.set(r.batchId, { generatedAt: t, items: [] })
@@ -79,8 +90,20 @@ export async function readPendingSerendipityDiscoveries(
 
   return {
     id: pickedBatchId,
-    ...renderSection(items),
+    ...renderSection(items, { heading, links }),
     onDelivered: async () => {
+      if (stampFile) {
+        try {
+          const all = JSON.parse(await readFile(discoveriesFilePath, "utf8"))
+          const stamp = new Date(now).toISOString()
+          for (const r of all) if (r?.batchId === pickedBatchId && !r.deliveredAt) r.deliveredAt = stamp
+          await writeFile(discoveriesFilePath + ".tmp", JSON.stringify(all, null, 2))
+          await rename(discoveriesFilePath + ".tmp", discoveriesFilePath)
+        } catch {
+          // Best-effort, like the POST below.
+        }
+        return
+      }
       try {
         await fetch(`http://127.0.0.1:${port}/api/delivered`, {
           method: "POST",
@@ -109,35 +132,35 @@ const KIND_LABELS = {
 
 // A section with no <h1>/<h2> — the digest owns those, and
 // validateDigestContent counts <h2> group headings.
-function renderSection(items) {
+function renderSection(items, { heading, links }) {
   const base = process.env.SERENDIPITY_RADAR_BASE_URL || "http://100.79.18.117:8024"
 
   const htmlItems = items
     .map((it) => {
       const qs = new URLSearchParams({ kind: it.kind ?? "", title: it.title ?? "" })
-      const interested = `${base}/api/mark?${qs}&mark=interested`
-      const ignored = `${base}/api/mark?${qs}&mark=ignored`
-      const label = KIND_LABELS[it.kind] || KIND_LABELS.other
-      // The shelf only holds books and games (of the kinds this radar emits),
-      // so only those get an "add to shelf" link.
-      const shelfLink = SHELF_KINDS.has(it.kind)
-        ? ` &nbsp;·&nbsp; <a href="${escapeText(`${base}/api/shelf-want?${qs}`)}">&#43; add to shelf</a>`
+      const linkRow = links
+        ? `<br><small><a href="${escapeText(`${base}/api/mark?${qs}&mark=interested`)}">&#9733; more like this</a> &nbsp;·&nbsp; ` +
+          `<a href="${escapeText(`${base}/api/mark?${qs}&mark=ignored`)}">&#10005; not for me</a>` +
+          (SHELF_KINDS.has(it.kind)
+            ? ` &nbsp;·&nbsp; <a href="${escapeText(`${base}/api/shelf-want?${qs}`)}">&#43; add to shelf</a>`
+            : "") +
+          `</small>`
         : ""
+      const label = KIND_LABELS[it.kind] || KIND_LABELS.other
       return (
         `<li><b>${escapeText(it.title)}</b> <i>(${escapeText(label)})</i><br>` +
         `${escapeText(it.why_it_connects)}<br>` +
         `<i>${escapeText(it.why_it_is_unexpected)}</i><br>` +
         (it.link ? `<a href="${escapeText(it.link)}">Link</a>` : "") +
         (it.availability ? ` &mdash; ${escapeText(it.availability)}` : "") +
-        `<br><small><a href="${escapeText(interested)}">&#9733; more like this</a> &nbsp;·&nbsp; ` +
-        `<a href="${escapeText(ignored)}">&#10005; not for me</a>${shelfLink}</small></li>`
+        `${linkRow}</li>`
       )
     })
     .join("")
 
   const html =
     `<hr>` +
-    `<h3 style="margin-bottom:2px">Serendipity</h3>` +
+    `<h3 style="margin-bottom:2px">${escapeText(heading)}</h3>` +
     `<ul style="padding-left:1.2em;margin-top:0">${htmlItems}</ul>`
 
   const textItems = items
@@ -151,7 +174,7 @@ function renderSection(items) {
       )
     })
     .join("")
-  const text = `\n—\nSerendipity\n${textItems}`
+  const text = `\n—\n${heading}\n${textItems}`
 
   return { html, text }
 }

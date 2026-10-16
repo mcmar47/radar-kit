@@ -104,3 +104,29 @@ test("books and games get an add-to-shelf link; other kinds do not", async () =>
     await cleanup()
   }
 })
+
+test("trial options: custom heading, no mark links, trialSeed ignored, stampFile stamps in place", async () => {
+  const { file, cleanup } = await discoveriesFile([
+    discovery({ id: "seed", batchId: "b-seed", generatedAt: "2026-09-19T05:30:00Z", trialSeed: true, title: "Seeded" }),
+    discovery({ id: "t-1", batchId: "b-trial", generatedAt: "2026-09-19T05:00:00Z", title: "Trial pick", kind: "book" }),
+  ])
+  try {
+    const section = await readPendingSerendipityDiscoveries(file, {
+      now: NOW,
+      heading: "Serendipity (trial: free model)",
+      links: false,
+      stampFile: true,
+    })
+    assert.equal(section.id, "b-trial")
+    assert.match(section.html, /Serendipity \(trial: free model\)/)
+    assert.doesNotMatch(section.html, /api\/mark|shelf-want/)
+    assert.doesNotMatch(section.html, /Seeded/)
+    assert.match(section.text, /Serendipity \(trial: free model\)/)
+    await section.onDelivered()
+    const after = JSON.parse(await (await import("node:fs/promises")).readFile(file, "utf8"))
+    assert.ok(after.find((r) => r.id === "t-1").deliveredAt)
+    assert.equal(after.find((r) => r.id === "seed").deliveredAt, null)
+  } finally {
+    await cleanup()
+  }
+})
