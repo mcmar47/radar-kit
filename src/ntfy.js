@@ -43,6 +43,19 @@ export async function readPushTopic(topicFile = PUSH_TOPIC_FILE) {
 // guard, same reason, as gmail.js's sanitizeHeaderValue.
 const oneLine = (s) => String(s ?? "").replace(/[\r\n]+/g, " ").trim()
 
+// HTTP header values must be Latin-1; a stray em dash or middle dot makes
+// fetch throw (and sendNtfyPush swallow it, so the push is silently lost --
+// see eink sunset_notify.py). Keep header text plain ASCII; the body is
+// UTF-8 safe and passes through. Also used by continuumPush.js.
+export const asciiTitle = (s) =>
+  String(s ?? "")
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[^\x20-\x7e]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
 /**
  * POST one notification to ntfy.sh. Best-effort by contract: a push that
  * fails must never turn a delivered digest into a failed run, so every
@@ -73,9 +86,9 @@ export async function sendNtfyPush({
   if (!topic) return false
 
   const headers = {
-    Title: oneLine(title),
+    Title: asciiTitle(title),
     Priority: oneLine(priority),
-    Tags: (Array.isArray(tags) ? tags : [tags]).map(oneLine).filter(Boolean).join(","),
+    Tags: (Array.isArray(tags) ? tags : [tags]).map(asciiTitle).filter(Boolean).join(","),
   }
   if (clickUrl) headers.Click = oneLine(clickUrl)
 

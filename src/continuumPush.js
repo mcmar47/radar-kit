@@ -25,7 +25,7 @@
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
-import { sendNtfyPush } from "./ntfy.js"
+import { sendNtfyPush, asciiTitle } from "./ntfy.js"
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:8031/api/push"
 
@@ -44,18 +44,6 @@ async function readDigestTopic(file) {
     return null
   }
 }
-
-// ntfy carries the title in an HTTP header, which must be Latin-1; a stray
-// em dash or middle dot makes fetch throw (see eink sunset_notify.py). Keep
-// the title plain ASCII. The body is UTF-8 safe and passes through.
-const asciiTitle = (s) =>
-  String(s ?? "")
-    .replace(/[\u2013\u2014]/g, "-")
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201c\u201d]/g, '"')
-    .replace(/[^\x20-\x7e]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
 
 const oneLine = (s) => String(s ?? "").replace(/[\r\n]+/g, " ").trim()
 
