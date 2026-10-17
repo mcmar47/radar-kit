@@ -38,7 +38,8 @@ export async function readPendingPrizeDigest(
   let digest
   try {
     digest = JSON.parse(await readFile(digestFilePath, "utf8"))
-  } catch {
+  } catch (err) {
+    if (err.code !== "ENOENT") console.error("prize-radar section: could not read", digestFilePath, err)
     return null
   }
   if (!digest || typeof digest !== "object") return null

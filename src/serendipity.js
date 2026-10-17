@@ -21,6 +21,7 @@
 // after a confirmed send) is belt-and-suspenders on top of that.
 
 import { readFile, writeFile, rename } from "node:fs/promises"
+import { safeUrl } from "./html.js"
 
 const DEFAULT_MAX_AGE_HOURS = 26
 
@@ -60,7 +61,8 @@ export async function readPendingSerendipityDiscoveries(
   try {
     const data = JSON.parse(await readFile(discoveriesFilePath, "utf8"))
     records = Array.isArray(data) ? data : []
-  } catch {
+  } catch (err) {
+    if (err.code !== "ENOENT") console.error("serendipity section: could not read", discoveriesFilePath, err)
     return null
   }
   const cutoff = now - maxAgeHours * 3600 * 1000
@@ -147,11 +149,13 @@ function renderSection(items, { heading, links }) {
           `</small>`
         : ""
       const label = KIND_LABELS[it.kind] || KIND_LABELS.other
+      // Discoveries come from LLM/web output: only http(s) links survive.
+      const link = it.link ? safeUrl(it.link) : "#"
       return (
         `<li><b>${escapeText(it.title)}</b> <i>(${escapeText(label)})</i><br>` +
         `${escapeText(it.why_it_connects)}<br>` +
         `<i>${escapeText(it.why_it_is_unexpected)}</i><br>` +
-        (it.link ? `<a href="${escapeText(it.link)}">Link</a>` : "") +
+        (link !== "#" ? `<a href="${escapeText(link)}">Link</a>` : "") +
         (it.availability ? ` &mdash; ${escapeText(it.availability)}` : "") +
         `${linkRow}</li>`
       )
@@ -170,7 +174,7 @@ function renderSection(items, { heading, links }) {
         `- ${it.title} (${label})\n` +
         `  ${it.why_it_connects}\n` +
         `  ${it.why_it_is_unexpected}\n` +
-        (it.link ? `  ${it.link}\n` : "")
+        (it.link && safeUrl(it.link) !== "#" ? `  ${it.link}\n` : "")
       )
     })
     .join("")

@@ -7,15 +7,16 @@
 // barrel, but nothing here reaches @opencode-ai/plugin, and it's small
 // enough that a future consumer could import it on its own subpath.
 //
-// The freshness window is the real backstop against sending the same answer
-// twice: two feed-radar runs are 24h apart, the research run finishes
-// ~03:45, so anything older than ~22h has already had its shot at a digest.
-// `deliveredAt` (stamped via onDelivered after a confirmed send) is
-// belt-and-suspenders on top of that.
+// `deliveredAt` (stamped via onDelivered after a confirmed send) is what
+// stops the same answer going out twice. The freshness window is the backstop
+// for a failed callback and for ancient unanswered-then-answered rows. It is
+// 30h, not 24h or less: research-desk is on-demand now, so an answer can land
+// any time, and one finishing just after a ~06:30 digest is 22-24h old at the
+// next one and used to be skipped for good.
 
 import { readFile } from "node:fs/promises"
 
-const DEFAULT_MAX_AGE_HOURS = 22
+const DEFAULT_MAX_AGE_HOURS = 30
 
 const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }
 const escapeText = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ESC[c])
@@ -23,7 +24,7 @@ const escapeText = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ESC[c])
 /**
  * @param {string} deskFilePath  absolute path to research-desk's data/desk.json
  * @param {object} [opts]
- * @param {number} [opts.maxAgeHours=22]
+ * @param {number} [opts.maxAgeHours=30]
  * @param {string} [opts.port]   desk server port for the delivered callback
  * @param {number} [opts.now]    epoch ms, injectable for tests
  * @returns {Promise<{id, html, text, onDelivered}|null>}
@@ -35,7 +36,10 @@ export async function readPendingResearchAnswer(
   let data
   try {
     data = JSON.parse(await readFile(deskFilePath, "utf8"))
-  } catch {
+  } catch (err) {
+    // A missing file just means nothing to deliver; anything else (corrupt
+    // JSON, permissions) is worth a log line. Still non-fatal either way.
+    if (err.code !== "ENOENT") console.error("research-desk section: could not read", deskFilePath, err)
     return null
   }
   const items = Array.isArray(data?.items) ? data.items : []
@@ -65,7 +69,7 @@ export async function readPendingResearchAnswer(
           body: JSON.stringify({ id: picked.id }),
         })
       } catch {
-        // Best-effort. The freshness window still stops a re-send tomorrow.
+        // Best-effort. Without deliveredAt only the 30h window limits a re-send.
       }
     },
   }
