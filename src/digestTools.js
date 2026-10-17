@@ -6,6 +6,8 @@ import { writeJsonArray } from "./seenStore.js"
 import { readMarks } from "./markStore.js"
 import { writeFileAtomic } from "./atomicWrite.js"
 import { buildScorecard, appendRun, latestRunCost } from "./scorecard.js"
+import { localDateString } from "./localDate.js"
+import { sendKey, assertNotAlreadySending, markSending, clearSending } from "./sendGuard.js"
 import { sendGmailMessage } from "./gmail.js"
 import { readPushTopic, sendNtfyPush } from "./ntfy.js"
 import { sendContinuumPush, buildSummary } from "./continuumPush.js"
@@ -99,7 +101,7 @@ export function createRenderDigestTool({
     description,
     args: { items: tool.schema.array(argsShape) },
     execute: async ({ items }, context) => {
-      const today = new Date().toISOString().slice(0, 10)
+      const today = localDateString()
       const footer = await scorecardFooter(scorecard, context.directory)
       const extra = await extraSectionContent(extraSection, context.directory)
       const rendered = renderDigestContent(digestConfig, items, today, {
@@ -195,8 +197,10 @@ export function createSendDigestEmailTool({
     execute: async ({ subject }, context) => {
       const filePath = path.join(context.directory, stagingFileName)
       let items = []
+      let stagingRaw = ""
       try {
-        const parsed = JSON.parse(await readFile(filePath, "utf8"))
+        stagingRaw = await readFile(filePath, "utf8")
+        const parsed = JSON.parse(stagingRaw)
         if (Array.isArray(parsed)) items = parsed
       } catch (err) {
         // A missing staging file is fine when there's an extra section to
@@ -212,7 +216,7 @@ export function createSendDigestEmailTool({
         return JSON.stringify({ sent: false, reason: "nothing to send" }, null, 2)
       }
 
-      const today = new Date().toISOString().slice(0, 10)
+      const today = localDateString()
       const footer = await scorecardFooter(scorecard, context.directory)
       const { html, text } = renderDigestContent(digestConfig, items, today, {
         ...footer,
@@ -227,7 +231,21 @@ export function createSendDigestEmailTool({
         )
       }
 
-      const result = await sendGmailMessage({ to: digestRecipient, subject, text, html })
+      // Refuse a second attempt at a digest whose last send may have been
+      // delivered (see sendGuard.js); the marker goes down just before the
+      // SMTP body, so earlier failures stay retryable.
+      const guardKey = sendKey(stagingRaw, extra?.id)
+      await assertNotAlreadySending(filePath, guardKey)
+      const result = await sendGmailMessage({
+        to: digestRecipient,
+        subject,
+        text,
+        html,
+        onBeforeData: () => markSending(filePath, guardKey),
+      })
+      await clearSending(filePath).catch((err) =>
+        console.error("send_digest_email: could not remove the .sending marker:", err)
+      )
 
       // Record exactly what was sent into the repo's seen store, straight
       // from the staging file, the moment the send is confirmed — so a model

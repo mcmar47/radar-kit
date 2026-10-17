@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin/tool"
+import { localDateString } from "./localDate.js"
 
 // Generic — takes only { title, date } plus whatever else the caller passes
 // through. Currently used by event-watch only; kept here (rather than
@@ -29,7 +30,7 @@ export function createFilterFutureEventsTool() {
         return { ...c, keep: true, reason: null }
       })
       return JSON.stringify(
-        { today: today.toISOString().slice(0, 10), results },
+        { today: localDateString(today), results },
         null,
         2
       )

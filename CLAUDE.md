@@ -40,7 +40,8 @@ more than once across the sibling repos, not by "these look similar."
   rendered chart), and
   `test/concurrency.test.js` (per-path write serialization in `writeFileAtomic`, no lost
   updates across concurrent `markStore.set`/`setMany`, and the SMTP send's password-free
-  error labels and idle timeout), and `test/seen-store.test.js` (`readStagedItems` /
+  error labels and idle timeout), `test/review-fixes.test.js` (2026-10 review fixes: 30h Research Desk window, safe serendipity
+  links, ENOENT-only section readers, ASCII ntfy headers, local dates, the send-once guard), and `test/seen-store.test.js` (`readStagedItems` /
   `appendSeenItems` / `createSeenRecorder` — recording sent items from the staging file, not
   from the model's retyped arguments). The
   interest-server tests are written to fail against the pre-fix
@@ -84,6 +85,11 @@ more than once across the sibling repos, not by "these look similar."
   (`~/.config/pi-ops/ntfy-digest-topic`, no file = no-op), because the Continuum app may not be
   installed and APNs answers 200 for stale tokens. Titles are forced to ASCII; `clickUrl`
   (http only) is the ntfy tap target.
+  Since 1.18.0 `ntfy.js` exports `asciiTitle` and applies it to its own Title/Tags headers too;
+  `send_digest_email` writes `<staging>.sending` just before the SMTP body (`sendGuard.js`,
+  `smtpSubmit`'s `onBeforeData`) and refuses a second send of the same staging content while
+  it exists ("send outcome unknown, not retrying"); `localDateString` (`src/localDate.js`) is
+  the Pi-local "today" for the digest date and `soleImminentItem`'s default.
 - **`src/calibration.js`** joins a repo's star/reject mark file back to its records file by
   `keyFields`, which must match what that repo's interest-server writes or the join silently finds
   nothing. See README's table for all four repos' `keyFields`. Every repo is now wired up;

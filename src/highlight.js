@@ -8,6 +8,8 @@
 // this to build their `push.pickHighlight`, and the radar-kit/ntfy contract
 // keeps this side free of @opencode-ai/plugin too.
 
+import { localDateString } from "./localDate.js"
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}/
 
 // today + n days, as "YYYY-MM-DD". Uses UTC arithmetic on the date only, so
@@ -28,11 +30,11 @@ function addDays(isoDay, n) {
  * @param {object[]} items
  * @param {object} opts
  * @param {string} opts.dateField           e.g. "date" (events) / "release_date"
- * @param {string} opts.today               "YYYY-MM-DD", injectable for tests
+ * @param {string} [opts.today]             "YYYY-MM-DD"; defaults to the local date (Pi TZ), injectable for tests
  * @param {number} [opts.withinDays=3]
  * @returns {object|null}
  */
-export function soleImminentItem(items, { dateField, today, withinDays = 3 }) {
+export function soleImminentItem(items, { dateField, today = localDateString(), withinDays = 3 }) {
   if (!Array.isArray(items) || !today) return null
   const last = addDays(today, withinDays)
   const imminent = items.filter((it) => {

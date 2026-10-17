@@ -223,6 +223,10 @@ export async function smtpSubmit({
   // Injectable only so tests can point this at a local fake server.
   connect = () => tls.connect({ host: SMTP_HOST, port: SMTP_PORT, servername: SMTP_HOST }),
   idleTimeoutMs = SMTP_IDLE_TIMEOUT_MS,
+  // Awaited once the server has accepted DATA (354), right before the body
+  // goes out -- the point after which a failure no longer proves the message
+  // was NOT delivered. See sendGuard.js.
+  onBeforeData,
 }) {
   const socket = connect()
   socket.setEncoding("utf8")
@@ -253,6 +257,7 @@ export async function smtpSubmit({
     await step(`MAIL FROM:<${envelopeFrom}>`, "MAIL FROM", 250)
     await step(`RCPT TO:<${to}>`, "RCPT TO", 250, 251)
     await step("DATA", "DATA", 354)
+    if (onBeforeData) await onBeforeData()
     // Normalize to CRLF, then dot-stuff any line that begins with '.' so it
     // can't be read as the end-of-data terminator.
     const body = raw.replace(/\r?\n/g, "\r\n").replace(/(^|\r\n)\./g, "$1..")
@@ -277,6 +282,7 @@ export async function sendGmailMessage({
   attachments = [],
   fromName = DEFAULT_SENDER_NAME,
   fromAddress = DEFAULT_SENDER_ADDRESS,
+  onBeforeData,
 }) {
   let user, pass
   try {
@@ -314,6 +320,7 @@ export async function sendGmailMessage({
     envelopeFrom: user,
     to,
     raw,
+    onBeforeData,
   })
 
   // Kept shape-compatible with the old Gmail API return. SMTP submission
