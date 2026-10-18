@@ -41,7 +41,7 @@ more than once across the sibling repos, not by "these look similar."
   `test/concurrency.test.js` (per-path write serialization in `writeFileAtomic`, no lost
   updates across concurrent `markStore.set`/`setMany`, and the SMTP send's password-free
   error labels and idle timeout), `test/review-fixes.test.js` (2026-10 review fixes: 30h Research Desk window, safe serendipity
-  links, ENOENT-only section readers, ASCII ntfy headers, local dates, the send-once guard), and `test/seen-store.test.js` (`readStagedItems` /
+  links, ENOENT-only section readers, ASCII ntfy headers, local dates, the send-once guard), `test/near-duplicate.test.js` (`makeNearDuplicateFn`, check_dedup's optional reworded-title match, pinned to real event-watch pairs), and `test/seen-store.test.js` (`readStagedItems` /
   `appendSeenItems` / `createSeenRecorder` — recording sent items from the staging file, not
   from the model's retyped arguments). The
   interest-server tests are written to fail against the pre-fix

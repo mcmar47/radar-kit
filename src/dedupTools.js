@@ -16,9 +16,15 @@ function fieldName(f) {
 // (company+title+link) — release-radar needs 3-way new/updated/unchanged
 // classification instead, which is different enough to stay bespoke in that
 // repo's own plugin rather than being forced through this shape.
-export function createCheckDedupTool({ seenFileName, keyFields, argsShape, description }) {
+//
+// `isNearDuplicate(a, b)` (optional, see nearDuplicate.js) catches the same
+// item under a reworded title, against the store and within the batch; such
+// a candidate comes back in `duplicates` with `matched` naming the title it
+// matched.
+export function createCheckDedupTool({ seenFileName, keyFields, argsShape, description, isNearDuplicate }) {
   const keyOf = makeKeyFn(keyFields)
   const idFields = keyFields.map(fieldName)
+  const idOf = (d) => Object.fromEntries(idFields.map((f) => [f, d[f]]))
   return tool({
     description,
     args: { candidates: tool.schema.array(argsShape) },
@@ -28,15 +34,20 @@ export function createCheckDedupTool({ seenFileName, keyFields, argsShape, descr
       const newOnes = []
       const duplicates = []
       for (const c of candidates) {
-        if (seenKeys.has(keyOf(c))) duplicates.push(c)
+        if (seenKeys.has(keyOf(c))) {
+          duplicates.push(idOf(c))
+          continue
+        }
+        const near = isNearDuplicate
+          ? seen.find((s) => isNearDuplicate(c, s)) ?? newOnes.find((n) => isNearDuplicate(c, n))
+          : undefined
+        if (near) duplicates.push({ ...idOf(c), matched: near[idFields[0]] })
         else newOnes.push(c)
       }
       return JSON.stringify(
         {
           new: newOnes,
-          duplicates: duplicates.map((d) =>
-            Object.fromEntries(idFields.map((f) => [f, d[f]]))
-          ),
+          duplicates,
         },
         null,
         2

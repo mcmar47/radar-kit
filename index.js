@@ -12,6 +12,7 @@ export {
   createSeenRecorder,
 } from "./src/seenStore.js"
 export { createCheckDedupTool, createAppendSeenTool } from "./src/dedupTools.js"
+export { makeNearDuplicateFn } from "./src/nearDuplicate.js"
 export {
   createRenderDigestTool,
   createValidateDigestTool,
