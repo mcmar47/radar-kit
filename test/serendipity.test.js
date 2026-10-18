@@ -130,3 +130,20 @@ test("trial options: custom heading, no mark links, trialSeed ignored, stampFile
     await cleanup()
   }
 })
+
+test("trial with shelfLinks: + add to shelf on books only, still no mark links", async () => {
+  const { file, cleanup } = await discoveriesFile([
+    discovery({ id: "t-1", batchId: "b-trial", generatedAt: "2026-09-19T05:00:00Z", title: "Trial book", kind: "book" }),
+    discovery({ id: "t-2", batchId: "b-trial", generatedAt: "2026-09-19T05:00:00Z", title: "Trial show", kind: "exhibition" }),
+  ])
+  try {
+    const section = await readPendingSerendipityDiscoveries(file, {
+      now: NOW, links: false, shelfLinks: true, stampFile: true,
+    })
+    assert.doesNotMatch(section.html, /api\/mark/)
+    assert.equal(section.html.match(/shelf-want/g).length, 1)
+    assert.match(section.html, /shelf-want\?kind=book&amp;title=Trial\+book/)
+  } finally {
+    await cleanup()
+  }
+})

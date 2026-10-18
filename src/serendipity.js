@@ -41,6 +41,9 @@ const escapeText = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ESC[c])
  * @param {boolean} [opts.links=true]  render the star/ignore/add-to-shelf
  *        links; the trial turns them off so its picks can't write marks into
  *        the real radar's stores
+ * @param {boolean} [opts.shelfLinks=links]  render just the "+ add to
+ *        shelf" link even when `links` is off -- the trial keeps it, since
+ *        adding to the shelf writes nothing into the radar's mark stores
  * @param {boolean} [opts.stampFile=false]  on delivery, stamp deliveredAt
  *        straight into the file instead of POSTing to the server (the trial's
  *        server only runs during its own run)
@@ -54,6 +57,7 @@ export async function readPendingSerendipityDiscoveries(
     now = Date.now(),
     heading = "Serendipity",
     links = true,
+    shelfLinks = links,
     stampFile = false,
   } = {}
 ) {
@@ -92,7 +96,7 @@ export async function readPendingSerendipityDiscoveries(
 
   return {
     id: pickedBatchId,
-    ...renderSection(items, { heading, links }),
+    ...renderSection(items, { heading, links, shelfLinks }),
     onDelivered: async () => {
       if (stampFile) {
         try {
@@ -134,20 +138,21 @@ const KIND_LABELS = {
 
 // A section with no <h1>/<h2> — the digest owns those, and
 // validateDigestContent counts <h2> group headings.
-function renderSection(items, { heading, links }) {
+function renderSection(items, { heading, links, shelfLinks = links }) {
   const base = process.env.SERENDIPITY_RADAR_BASE_URL || "http://100.79.18.117:8024"
 
   const htmlItems = items
     .map((it) => {
       const qs = new URLSearchParams({ kind: it.kind ?? "", title: it.title ?? "" })
-      const linkRow = links
-        ? `<br><small><a href="${escapeText(`${base}/api/mark?${qs}&mark=interested`)}">&#9733; more like this</a> &nbsp;·&nbsp; ` +
-          `<a href="${escapeText(`${base}/api/mark?${qs}&mark=ignored`)}">&#10005; not for me</a>` +
-          (SHELF_KINDS.has(it.kind)
-            ? ` &nbsp;·&nbsp; <a href="${escapeText(`${base}/api/shelf-want?${qs}`)}">&#43; add to shelf</a>`
-            : "") +
-          `</small>`
-        : ""
+      const parts = []
+      if (links) {
+        parts.push(`<a href="${escapeText(`${base}/api/mark?${qs}&mark=interested`)}">&#9733; more like this</a>`)
+        parts.push(`<a href="${escapeText(`${base}/api/mark?${qs}&mark=ignored`)}">&#10005; not for me</a>`)
+      }
+      if (shelfLinks && SHELF_KINDS.has(it.kind)) {
+        parts.push(`<a href="${escapeText(`${base}/api/shelf-want?${qs}`)}">&#43; add to shelf</a>`)
+      }
+      const linkRow = parts.length ? `<br><small>${parts.join(" &nbsp;·&nbsp; ")}</small>` : ""
       const label = KIND_LABELS[it.kind] || KIND_LABELS.other
       // Discoveries come from LLM/web output: only http(s) links survive.
       const link = it.link ? safeUrl(it.link) : "#"
