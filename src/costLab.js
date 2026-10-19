@@ -277,6 +277,8 @@ function renderChart(built, fleet, weeks, now) {
     })
     .join("")
 
+  // No <title> on the hit rects: browsers show it as a native tooltip on top of the
+  // custom one. aria-label carries the same summary for screen readers.
   // Bars carry no pointer events of their own — the invisible per-column
   // hit rect below is the hit target (dataviz skill: "the mark is the hit
   // target... bigger than the mark"), and it answers "which key is this"
@@ -321,8 +323,7 @@ function renderChart(built, fleet, weeks, now) {
         : `${weekLabel}: no spend logged`
     hits.push(
       `<rect class="hit" x="${bandX}" y="${padT}" width="${bandW}" height="${plotH}" ` +
-        `tabindex="0" role="img" aria-label="${escapeHtml(summary)}" data-tooltip="${tooltip}">` +
-        `<title>${escapeHtml(summary)}</title></rect>`
+        `tabindex="0" role="img" aria-label="${escapeHtml(summary)}" data-tooltip="${tooltip}"></rect>`
     )
   }
 

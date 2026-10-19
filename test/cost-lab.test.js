@@ -189,6 +189,10 @@ test("the rendered html is a full document with a safe, inline-only hover toolti
   assert.doesNotMatch(scriptBody, /a & "b"/, "agent data must not be concatenated into the script body")
   assert.match(report.html, /a &amp; &quot;b&quot;/)
   assert.match(report.html, /data-tooltip="[^"]*&quot;a &amp; \\&quot;b\\&quot;&quot;/)
+  // No SVG <title> inside the chart: the browser's native tooltip would pop up
+  // over the custom one (the page's own <title> in <head> is fine).
+  const svg = report.html.match(/<svg[\s\S]*?<\/svg>/)[0]
+  assert.doesNotMatch(svg, /<title>/)
 })
 
 test("hovering a bar's data-tooltip lists every agent in that week, sorted by spend, with a color per row", () => {
