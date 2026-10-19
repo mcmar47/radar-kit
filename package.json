@@ -1,6 +1,6 @@
 {
   "name": "radar-kit",
-  "version": "1.20.0",
+  "version": "1.20.1",
   "type": "module",
   "main": "index.js",
   "exports": {

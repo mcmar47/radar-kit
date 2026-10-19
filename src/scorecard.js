@@ -206,9 +206,20 @@ export function recordRunCost(runs, costUsd, runStartIso, { keep = 90, now = () 
  * buildScorecard.
  */
 export function latestRunCost(runs) {
-  if (!Array.isArray(runs)) return undefined
-  for (let i = runs.length - 1; i >= 0; i--) {
-    if (typeof runs[i]?.costUsd === "number") return runs[i].costUsd
-  }
+  // The newest entry only, not the newest one that HAS a cost: an older
+  // run's figure under "last run" is just wrong. event-watch showed the
+  // Oct 15 paid run's $0.51 for days after moving to a free model, whose
+  // runs never record a cost (run-cost.js skips a zero delta).
+  if (!Array.isArray(runs) || runs.length === 0) return undefined
+  const last = runs[runs.length - 1]
+  if (typeof last?.costUsd === "number") return last.costUsd
+  if (isFreeModel(last?.model)) return 0
   return undefined
+}
+
+// opencode's own free tier ("opencode/deepseek-v4.1-flash-free") and
+// OpenRouter's ":free" variants cost nothing per run by definition.
+export function isFreeModel(model) {
+  if (typeof model !== "string") return false
+  return /^opencode\/.*-free$/.test(model) || model.endsWith(":free")
 }

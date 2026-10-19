@@ -109,17 +109,20 @@ test("recordRunCost ignores a nonsense delta (negative, NaN, non-number)", () =>
   }
 })
 
-test("latestRunCost returns the newest logged cost, or undefined", () => {
+test("latestRunCost is the newest run's own cost: never an older run's, 0 for a free model", () => {
   assert.equal(latestRunCost([]), undefined)
   assert.equal(latestRunCost([{ count: 1 }, { count: 2 }]), undefined)
-  assert.equal(
-    latestRunCost([
-      { count: 1, costUsd: 0.02 },
-      { count: 2, costUsd: 0.05 },
-      { count: 3 },
-    ]),
-    0.05
-  )
+  assert.equal(latestRunCost([{ count: 1, costUsd: 0.02 }, { count: 2, costUsd: 0.05 }]), 0.05)
+  // An unmeasured paid run shows nothing, not the run before it.
+  assert.equal(latestRunCost([{ count: 2, costUsd: 0.05 }, { count: 3, model: "openrouter/z-ai/glm-5.3-flash" }]), undefined)
+  // The real event-watch log after the move to the free model.
+  const runs = [
+    { count: 12, model: "openrouter/deepseek/deepseek-v4-flash-0731", costUsd: 0.5092 },
+    { count: 17, model: "opencode/deepseek-v4.1-flash-free" },
+  ]
+  assert.equal(latestRunCost(runs), 0)
+  assert.match(buildScorecard({ runs, costUsd: latestRunCost(runs), now: NOW }).line, /\$0\.00 last run/)
+  assert.equal(latestRunCost([{ count: 1, model: "openrouter/meta-llama/llama-4:free" }]), 0)
 })
 
 test("sumCostSince sums only costUsd entries inside the window, skipping uncosted runs", () => {
