@@ -82,6 +82,19 @@ test("the rendered section carries no <h2> (would break the digest validator)", 
   await cleanup()
 })
 
+test("a pitch replaces the connects/unexpected reasoning; legacy records fall back", async () => {
+  const { file, cleanup } = await discoveriesFile([
+    discovery({ id: "p-1", title: "Pitched", pitch: "A hand-drawn deep-sea atlas." }),
+    discovery({ id: "p-2", title: "Legacy" }),
+  ])
+  const section = await readPendingSerendipityDiscoveries(file, { now: NOW })
+  assert.match(section.html, /A hand-drawn deep-sea atlas\./)
+  assert.match(section.text, /A hand-drawn deep-sea atlas\./)
+  assert.equal(section.html.split("archaeology").length - 1, 1) // only the legacy record
+  assert.equal(section.text.split("archaeology").length - 1, 1)
+  await cleanup()
+})
+
 test("one-click links carry the kind+title key and both mark endpoints", async () => {
   const { file, cleanup } = await discoveriesFile([discovery({ kind: "game", title: "Weird & Wonderful" })])
   const section = await readPendingSerendipityDiscoveries(file, { now: NOW })

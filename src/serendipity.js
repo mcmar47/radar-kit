@@ -136,6 +136,8 @@ const KIND_LABELS = {
   other: "Discovery",
 }
 
+// Shows only the pitch: why_it_connects / why_it_is_unexpected are the agent's
+// private reasoning (records from before 2026-10-20 have no pitch and fall back).
 // A section with no <h1>/<h2> — the digest owns those, and
 // validateDigestContent counts <h2> group headings.
 function renderSection(items, { heading, links, shelfLinks = links }) {
@@ -158,8 +160,9 @@ function renderSection(items, { heading, links, shelfLinks = links }) {
       const link = it.link ? safeUrl(it.link) : "#"
       return (
         `<li><b>${escapeText(it.title)}</b> <i>(${escapeText(label)})</i><br>` +
-        `${escapeText(it.why_it_connects)}<br>` +
-        `<i>${escapeText(it.why_it_is_unexpected)}</i><br>` +
+        (it.pitch
+          ? `${escapeText(it.pitch)}<br>`
+          : `${escapeText(it.why_it_connects)}<br><i>${escapeText(it.why_it_is_unexpected)}</i><br>`) +
         (link !== "#" ? `<a href="${escapeText(link)}">Link</a>` : "") +
         (it.availability ? ` &mdash; ${escapeText(it.availability)}` : "") +
         `${linkRow}</li>`
@@ -177,8 +180,7 @@ function renderSection(items, { heading, links, shelfLinks = links }) {
       const label = KIND_LABELS[it.kind] || KIND_LABELS.other
       return (
         `- ${it.title} (${label})\n` +
-        `  ${it.why_it_connects}\n` +
-        `  ${it.why_it_is_unexpected}\n` +
+        (it.pitch ? `  ${it.pitch}\n` : `  ${it.why_it_connects}\n  ${it.why_it_is_unexpected}\n`) +
         (it.link && safeUrl(it.link) !== "#" ? `  ${it.link}\n` : "")
       )
     })
