@@ -141,7 +141,7 @@ const KIND_LABELS = {
 // A section with no <h1>/<h2> — the digest owns those, and
 // validateDigestContent counts <h2> group headings.
 function renderSection(items, { heading, links, shelfLinks = links }) {
-  const base = process.env.SERENDIPITY_RADAR_BASE_URL || "http://100.79.18.117:8024"
+  const base = process.env.SERENDIPITY_RADAR_BASE_URL || "http://continuum.tail54385e.ts.net:8024"
 
   const htmlItems = items
     .map((it) => {
