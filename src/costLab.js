@@ -81,7 +81,7 @@ function projectMonthlySpend(allLoggedUsd, historyDays) {
   return (allLoggedUsd / historyDays) * 30
 }
 
-// The categorical palette's 8 slots, in fixed order (dataviz skill,
+// The categorical palette's 8 slots (+ a 9th neutral grey, below), in fixed order (dataviz skill,
 // references/palette.md) — validated for adjacent-pair CVD/contrast on
 // stacked bars specifically. Slot order encodes identity and must stay
 // fixed across regenerations regardless of which agents have spend in the
@@ -95,6 +95,10 @@ const SLOTS = [
   { light: "#008300", dark: "#008300" }, // 6 green
   { light: "#4a3aa7", dark: "#9085e9" }, // 7 violet
   { light: "#e34948", dark: "#e66767" }, // 8 red
+  // 9 neutral grey: not a real agent. Reserved for the pre-restore backfill
+  // series (OpenRouter's per-model activity, unattributed), so it reads as
+  // "history we couldn't assign" rather than a ninth agent.
+  { light: "#8b9099", dark: "#9aa0a8" },
 ]
 
 function formatUsd(usd) {

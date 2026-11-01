@@ -233,3 +233,13 @@ test("a zero-spend fleet still renders (niceMax degrades gracefully, no division
   assert.doesNotMatch(report.html, /NaN/)
   assert.doesNotMatch(report.html, /Infinity/)
 })
+
+test("a ninth series gets its own color slot (pre-restore backfill)", () => {
+  const agents = Array.from({ length: 9 }, (_, i) => ({
+    name: `a${i + 1}`,
+    runs: [{ at: new Date(Date.now() - 3600_000).toISOString(), costUsd: 0.1 }],
+  }))
+  const { html } = buildCostLabReport({ agents })
+  assert.match(html, /--series-9:/)
+  assert.match(html, /var\(--series-9\)/)
+})
