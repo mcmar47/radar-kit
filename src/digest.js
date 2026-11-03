@@ -34,7 +34,14 @@ import { escapeHtml } from "./html.js"
 //                      date string.
 
 export function renderDigestContent(config, items, asOf, opts = {}) {
-  const { footerHtml = "", footerText = "", extraHtml = "", extraText = "" } = opts
+  const {
+    footerHtml = "",
+    footerText = "",
+    extraHtml = "",
+    extraText = "",
+    trailerHtml = "",
+    trailerText = "",
+  } = opts
   const {
     pageTitle,
     unitLabel,
@@ -82,13 +89,18 @@ export function renderDigestContent(config, items, asOf, opts = {}) {
   }
   // An extra section (the Research Desk block), then the footer (the
   // scorecard line), both after the last group and before the closing tags.
-  // Neither may contain an <h2> — validateDigestContent counts those as
-  // group headings — and the closing-tag check still holds.
+  // Then the trailer (feed-radar's "Coming tomorrow" note), the very last
+  // thing in the email. None may contain an <h2> — validateDigestContent
+  // counts those as group headings — and the closing-tag check still holds.
+  // The trailer never decides whether a digest is sent (see digestTools.js),
+  // so it can't turn a no-picks, nothing-waiting day into an email.
   if (extraHtml) htmlParts.push(extraHtml)
   if (footerHtml) htmlParts.push(footerHtml)
+  if (trailerHtml) htmlParts.push(trailerHtml)
   htmlParts.push("</body></html>")
   if (extraText) textParts.push(extraText)
   if (footerText) textParts.push(footerText)
+  if (trailerText) textParts.push(trailerText)
 
   return {
     html: htmlParts.join("\n"),

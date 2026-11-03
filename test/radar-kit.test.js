@@ -355,3 +355,26 @@ test("text and HTML parts are base64 with short lines, and decode back to the or
   assert.equal(decoded[0], longParagraph)
   assert.equal(decoded[1], `<html><body><p>${longParagraph}</p></body></html>`)
 })
+
+test("renderDigestContent puts the trailer after the extra section and the footer", () => {
+  const config = {
+    pageTitle: "Feed Radar",
+    unitLabel: "pick",
+    groupKey: (i) => i.theme,
+    renderItemHtml: (i) => `<li>${i.title}</li>`,
+    renderItemText: (i) => `- ${i.title}`,
+  }
+  const { html, text } = renderDigestContent(config, [{ title: "A", theme: "t" }], "2026-11-03", {
+    extraHtml: "<p>EXTRA</p>",
+    extraText: "EXTRA",
+    footerHtml: "<p>FOOTER</p>",
+    footerText: "FOOTER",
+    trailerHtml: "<p>TRAILER</p>",
+    trailerText: "TRAILER",
+  })
+  assert.ok(html.indexOf("EXTRA") < html.indexOf("FOOTER"))
+  assert.ok(html.indexOf("FOOTER") < html.indexOf("TRAILER"))
+  assert.ok(html.indexOf("TRAILER") < html.indexOf("</body></html>"))
+  assert.ok(text.indexOf("FOOTER") < text.indexOf("TRAILER"))
+  assert.ok(text.trimEnd().endsWith("TRAILER"))
+})

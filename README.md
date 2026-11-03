@@ -78,6 +78,11 @@ but "this exact bug already needed fixing more than once."
   as `extraSection: { read }`; the section renders after the item groups and
   before the scorecard footer, and the send tool will send a digest with
   zero items when the section alone is worth sending. Dependency-free.
+- `trailer: { read }` (render + send digest tools, 1.23.0) — an optional note
+  rendered after the scorecard, the very last thing in the email (feed-radar's
+  "Coming tomorrow" list). `read(dir)` returns `{ html, text }` or null. It is
+  read only once a send is already happening, so unlike `extraSection` it can
+  never make a no-items day send; no `onDelivered`; a throw drops it.
 - `buildMarkRateReport` / `createMarkRateSection` — the fleet mark-rate
   report (FUTURE-PROJECTS.md project 7's "one measurement worth taking
   now"). For each radar and the fleet as a whole: **of every item this radar

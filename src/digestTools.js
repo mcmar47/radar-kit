@@ -79,6 +79,22 @@ async function scorecardFooter(scorecard, dir) {
 // digest go out with zero items when the section alone is worth sending
 // (feed-radar + the Research Desk on a no-picks day). The block must carry
 // no <h2>. See src/researchDesk.js for the one implementation.
+// `trailer`, when passed, is `{ read: async (dir) => ({ html, text }) | null }`:
+// a note rendered after the scorecard, at the very bottom. Unlike
+// extraSection it never makes a digest sendable on its own (it is only read
+// once the send is already happening) and has no onDelivered. A throw is
+// logged and the trailer dropped; it never fails the digest.
+async function trailerContent(trailer, dir) {
+  if (!trailer?.read) return {}
+  try {
+    const t = await trailer.read(dir)
+    return t ? { trailerHtml: t.html ?? "", trailerText: t.text ?? "" } : {}
+  } catch (err) {
+    console.error("digest trailer.read failed:", err)
+    return {}
+  }
+}
+
 async function extraSectionContent(extraSection, dir) {
   if (!extraSection?.read) return null
   try {
@@ -96,6 +112,7 @@ export function createRenderDigestTool({
   description,
   scorecard,
   extraSection,
+  trailer,
 }) {
   return tool({
     description,
@@ -108,6 +125,7 @@ export function createRenderDigestTool({
         ...footer,
         extraHtml: extra?.html ?? "",
         extraText: extra?.text ?? "",
+        ...(await trailerContent(trailer, context.directory)),
       })
       await writeJsonArray(context.directory, stagingFileName, items)
       return JSON.stringify({ ...rendered, extraSection: Boolean(extra) }, null, 2)
@@ -187,6 +205,7 @@ export function createSendDigestEmailTool({
   description,
   scorecard,
   extraSection,
+  trailer,
   push,
   continuumPush,
   recordSent,
@@ -222,6 +241,7 @@ export function createSendDigestEmailTool({
         ...footer,
         extraHtml: extra?.html ?? "",
         extraText: extra?.text ?? "",
+        ...(await trailerContent(trailer, context.directory)),
       })
       const validation = validateDigestContent(digestConfig, html, text, items)
       if (!validation.pass) {
