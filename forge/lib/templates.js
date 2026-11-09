@@ -109,13 +109,19 @@ export function buildFiles(opts) {
       private: true,
       description,
       scripts: { test: "node --test" },
+      // src/<camel>Key.js imports radar-kit, and Node resolves that from src/
+      // upward, so .opencode/'s copy can't serve it. Needs its own fleet.json
+      // radarKitConsumers row (DEPLOY-CHECKLIST.md has it).
+      dependencies: { "radar-kit": "github:mcmar47/radar-kit" },
     },
     null,
     2
   ) + "\n"
 
   files["opencode.json"] = JSON.stringify(
-    { $schema: "https://opencode.ai/config.json", model },
+    // small_model is pinned because, left unset, opencode's title call picked an
+    // image model at about $0.04 a run (fixed fleet-wide 2026-10-19).
+    { $schema: "https://opencode.ai/config.json", model, small_model: model },
     null,
     2
   ) + "\n"

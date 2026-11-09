@@ -124,6 +124,11 @@ at the prompt/store level, applied to the deploy step too.
 
 ## Validated
 
+`test/forge.test.js` generates both archetypes and runs their tests on every `npm test`. It was
+added after the first real use (deep-radar, 2026-11-09) found the generated test failing, because
+`src/<camel>Key.js` imports radar-kit and only `.opencode/` declared it. Generated repos now also
+declare it at the root, which needs its own `fleet.json` consumer row.
+
 Both archetypes were scaffolded and exercised end to end while building this generator:
 every generated `.js` file passes `node --check`, the wrapper passes `bash -n`, `npm test`
 passes (4/4, including the calibration-compatibility test against a real installed

@@ -48,16 +48,18 @@ rk_fail_unless_exists "$OUTCOME_FILE" \\
 # model's arithmetic for anything a downstream write validates exactly.
 
 # Completion guard for a board agent: its write tool rewrites data/state.json
-# with a fresh generatedAt, so an unchanged one means the run didn't finish.
+# so unchanged content means the run didn't finish. Compared by content hash, not
+# generatedAt: a model that restores the file and re-applies edits puts the old
+# generatedAt back on a run that did complete (skyline-radar, 2026-10-09).
 STATE_FILE="$REPO_DIR/data/state.json"
-GEN_BEFORE=$(rk_json_field "$STATE_FILE" generatedAt)
+GEN_BEFORE=$(sha256sum "$STATE_FILE" 2>/dev/null | cut -d' ' -f1)
 
 rk_cost_begin
 # TODO: tune the timeout to this radar's real workload (30-45m is the fleet's usual range).
 rk_run_opencode 45m "$MODEL" "$PROMPT"
-GEN_AFTER=$(rk_json_field "$STATE_FILE" generatedAt)
+GEN_AFTER=$(sha256sum "$STATE_FILE" 2>/dev/null | cut -d' ' -f1)
 rk_fail_if_unchanged "$GEN_BEFORE" "$GEN_AFTER" \\
-  "data/state.json was not rewritten (generatedAt unchanged) -- the run did not complete."
+  "data/state.json was not rewritten (content unchanged) -- the run did not complete."
 
 # TODO if this board radar needs to commit+push data/ itself (prize-radar's
 # shape), do it here, best-effort: log a push failure, don't fail the run.`

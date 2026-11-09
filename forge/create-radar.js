@@ -8,7 +8,7 @@
 //   node forge/create-radar.js --name <kebab-name> --archetype server|static \
 //     --key-fields title,date [--dest ~/Projects] [--description "..."] \
 //     [--port 8036] [--cadence "Thu *-*-* 09:00:00"] [--cadence-note "..."] \
-//     [--model openrouter/z-ai/glm-5.3-flash] [--delivery digest|static-board|none] \
+//     [--model openrouter/deepseek/deepseek-v4-flash-0731] [--delivery digest|static-board|none] \
 //     [--plugin-pin 1.18.29] [--force]
 //
 // Run `node forge/create-radar.js --help` for the full flag list.
@@ -29,7 +29,7 @@ import { buildTestFile } from "./lib/testFile.js"
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 function parseArgs(argv) {
-  const args = { archetype: "server", delivery: "digest", model: "openrouter/z-ai/glm-5.3-flash" }
+  const args = { archetype: "server", delivery: "digest", model: "openrouter/deepseek/deepseek-v4-flash-0731" }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === "--help" || a === "-h") {
@@ -85,7 +85,7 @@ Common:
   --delivery digest|static-board|none
                                 default: digest for --archetype server, static-board for
                                 --archetype static
-  --model <model-id>           default: openrouter/z-ai/glm-5.3-flash
+  --model <model-id>           default: openrouter/deepseek/deepseek-v4-flash-0731
   --plugin-pin <version>        @opencode-ai/plugin version to pin in .opencode/package.json
                                   (default: read from an existing sibling repo if one is
                                   found next to --dest, else a hardcoded fallback — CONFIRM
@@ -123,6 +123,28 @@ function findNextFreePort(destParent) {
   // real pi-bootstrap/nginx/* and pi-ops/systemd/* — it only sees what's
   // checked out locally, which may be stale or incomplete.
   let max = 8035
+  // The fleet's own port tables, when those repos are checked out beside the
+  // destination: every nginx vhost's listen line and fleet.json's server ports.
+  // A radar-only scan chose 8036 on 2026-11-09, already the live hub vhost.
+  const claim = (text, pattern) => {
+    for (const m of text.matchAll(pattern)) {
+      const n = parseInt(m[1], 10)
+      if (n > max && n < 8100) max = n
+    }
+  }
+  try {
+    const nginxDir = path.join(destParent, "pi-bootstrap", "nginx")
+    for (const f of fs.readdirSync(nginxDir)) {
+      claim(fs.readFileSync(path.join(nginxDir, f), "utf8"), /^\s*listen\s+(?:\[::\]:)?(\d{4})\b/gm)
+    }
+  } catch {
+    // best-effort: pi-bootstrap isn't checked out beside --dest
+  }
+  try {
+    claim(fs.readFileSync(path.join(destParent, "pi-ops", "fleet.json"), "utf8"), /"port":\s*(\d{4})/g)
+  } catch {
+    // best-effort: pi-ops isn't checked out beside --dest
+  }
   try {
     const candidates = fs.readdirSync(destParent, { withFileTypes: true })
     for (const entry of candidates) {
@@ -269,14 +291,14 @@ async function main() {
   console.log(`Scaffolded ${name} (${archetype} archetype) at ${destDir} — ${count} files + AGENTS.md symlink.`)
   console.log("")
   console.log("Next steps:")
-  console.log(`  1. cd ${destDir} && npm test   # the scaffold's own tests should pass as-is`)
+  console.log(`  1. cd ${destDir} && npm install && npm test   # the scaffold's own tests should pass as-is`)
   console.log("  2. Fill in every TODO — start with CLAUDE.md, README.md's Decision model section,")
   console.log(`     .opencode/commands/${name}.md's real prompt, and src/${camel}Store.js's real logic.`)
   console.log("  3. Read DEPLOY-CHECKLIST.md for the pi-ops/pi-bootstrap registration steps —")
   console.log("     those are NOT applied automatically.")
   console.log(`  4. git init, first commit, push to github:mcmar47/${name} (or wherever this fleet's repos live).`)
   console.log("")
-  console.log(`Ports chosen: board/nginx ${port}` + (isServer ? `, interest-server ${serverPort}` : "") + " — VERIFY these are free before deploying (forge only scanned local sibling repos, not the Pi).")
+  console.log(`Ports chosen: board/nginx ${port}` + (isServer ? `, interest-server ${serverPort}` : "") + " — VERIFY these are free before deploying (forge scanned the local pi-bootstrap/pi-ops checkouts and sibling repos, not the live Pi).")
 }
 
 main().catch((err) => {
